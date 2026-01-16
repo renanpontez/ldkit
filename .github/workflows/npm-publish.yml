@@ -7,6 +7,10 @@ on:
     tags:
       - '*'
 
+permissions:
+  id-token: write  # Required for OIDC
+  contents: read
+
 jobs:
   dnt-and-publish:
     runs-on: ubuntu-latest
@@ -15,7 +19,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org/
 
       - uses: denoland/setup-deno@v2
@@ -34,6 +38,3 @@ jobs:
       - run: deno task dnt ${{ steps.version.outputs.no-v }}
       - run: npm publish --access public
         working-directory: ./npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
