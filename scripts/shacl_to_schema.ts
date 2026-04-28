@@ -272,7 +272,11 @@ class ShaclConverter {
   /**
    * Merge two PropertySpecs that target the same predicate (SHACL's
    * conjunction-of-property-shapes semantics):
-   * - type / schemaRef: last-wins for conflicts (rare in practice)
+   * - schemaRef: takes precedence over type. LDkit's encoder, decoder, query
+   *   builder, and TS type derivation all ignore `@type` when `@schema` is
+   *   present (see library/{decoder,encoder,schema/interface}.ts in this
+   *   repo), so emitting both would be dead code.
+   * - type (only when no schemaRef on either side): last-wins for conflicts
    * - optional / array: AND — only loose if BOTH branches are loose, since
    *   the stricter branch's cardinality dominates (e.g. one branch with
    *   maxCount=1 makes the property non-array regardless of other branches)
@@ -280,10 +284,14 @@ class ShaclConverter {
    */
   private mergePropertySpecs(a: PropertySpec, b: PropertySpec): PropertySpec {
     const merged: PropertySpec = { id: a.id };
-    if (b.type !== undefined) merged.type = b.type;
-    else if (a.type !== undefined) merged.type = a.type;
-    if (b.schemaRef !== undefined) merged.schemaRef = b.schemaRef;
-    else if (a.schemaRef !== undefined) merged.schemaRef = a.schemaRef;
+    if (b.schemaRef !== undefined || a.schemaRef !== undefined) {
+      merged.schemaRef = b.schemaRef ?? a.schemaRef;
+      // Intentionally do NOT copy `type` — schemaRef wins.
+    } else if (b.type !== undefined) {
+      merged.type = b.type;
+    } else if (a.type !== undefined) {
+      merged.type = a.type;
+    }
     if (a.optional && b.optional) merged.optional = true;
     if (a.array && b.array) merged.array = true;
     if (a.multilang || b.multilang) merged.multilang = true;

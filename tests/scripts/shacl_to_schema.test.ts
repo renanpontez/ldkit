@@ -696,6 +696,47 @@ ex:FacebookCarouselCard-InputShape a sh:NodeShape ;
   testSchema(input, schema);
 });
 
+Deno.test("Scripts / SHACL to Schema / Merging sh:nodeKind sh:IRI with sh:node keeps only schemaRef", () => {
+  // Real Metric pattern: `m:CampaignPerformanceSummaryShape` has multiple
+  // sh:property shapes on `m:campaign` — one with `sh:nodeKind sh:IRI` and
+  // another with `sh:node m:CampaignShape`. LDkit's encoder/decoder/query
+  // builder all ignore `@type` when `@schema` is present (see library/
+  // {decoder,encoder,schema/interface}.ts), so emitting both is dead code.
+  // The merge must drop `type` whenever either branch sets `schemaRef`.
+  const input = `${PREFIXES}
+ex:SummaryShape a sh:NodeShape ;
+  sh:targetClass ex:Summary ;
+  sh:property [ sh:path ex:campaign ; sh:nodeKind sh:IRI ; sh:maxCount 1 ] ;
+  sh:property [ sh:path ex:campaign ; sh:node ex:CampaignShape ; sh:maxCount 1 ] .
+
+ex:CampaignShape a sh:NodeShape ;
+  sh:targetClass ex:Campaign ;
+  sh:property [ sh:path ex:label ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] .
+`;
+
+  const summarySchema: SchemaSpec = {
+    name: "SummarySchema",
+    type: ["http://example.org/Summary"],
+    properties: {
+      campaign: {
+        id: "http://example.org/campaign",
+        schemaRef: "CampaignSchema",
+        optional: true,
+      },
+    },
+  };
+
+  const campaignSchema: SchemaSpec = {
+    name: "CampaignSchema",
+    type: ["http://example.org/Campaign"],
+    properties: {
+      label: { id: "http://example.org/label" },
+    },
+  };
+
+  testSchemas(input, [summarySchema, campaignSchema]);
+});
+
 Deno.test("Scripts / SHACL to Schema / Multiple property shapes on same path are merged", () => {
   // SHACL semantics: each sh:property is independently applied (AND).
   // The converter merges them into a single property spec to fit LDkit's
