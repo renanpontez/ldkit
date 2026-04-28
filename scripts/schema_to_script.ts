@@ -14,7 +14,10 @@ import {
   xsd,
 } from "../namespaces.ts";
 
-const NAMESPACES = [
+// Exported so that downstream tools (e.g. shacl-to-schema's prefix
+// extractor) can derive their built-in skip-lists from a single source of
+// truth instead of hard-coding the IRIs.
+export const NAMESPACES = [
   dbo,
   dc,
   dcterms,

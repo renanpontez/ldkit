@@ -2,51 +2,23 @@ import { Parser, type Quad, Store, type Term } from "npm:n3@^1.26.0";
 
 import {
   type ExtraNamespace,
+  NAMESPACES,
   type PropertySpec,
   type SchemaSpec,
 } from "./schema_to_script.ts";
 
-// Built-in LDkit namespaces — prefixes declared in the SHACL whose base IRI
-// matches one of these EXACTLY will NOT be re-emitted as createNamespace()
-// calls (the printer falls back on the built-in import). IRIs must match
-// LDkit's built-ins verbatim — `https://schema.org/` is NOT here because
-// LDkit's `schema` namespace uses `http://schema.org/`, so they are distinct
-// and must each get their own declaration to avoid mismatched query IRIs.
-// Keep in sync with `NAMESPACES` in schema_to_script.ts.
-const BUILTIN_NAMESPACE_IRIS = new Set([
-  "http://dbpedia.org/ontology/",
-  "http://purl.org/dc/elements/1.1/",
-  "http://purl.org/dc/terms/",
-  "http://xmlns.com/foaf/0.1/",
-  "http://purl.org/goodrelations/v1#",
-  "https://ldkit.io/ontology/",
-  "http://www.w3.org/2002/07/owl#",
-  "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-  "http://www.w3.org/2000/01/rdf-schema#",
-  "http://schema.org/",
-  "http://rdfs.org/sioc/ns#",
-  "http://www.w3.org/2004/02/skos/core#",
-  "http://www.w3.org/2001/XMLSchema#",
-]);
-
-// LDkit's built-in namespace prefix names. If a user-declared SHACL prefix
-// uses the same name with a *different* IRI, we rename to avoid colliding
-// with the `import { ... } from "ldkit/namespaces"` line.
-const BUILTIN_NAMESPACE_PREFIXES = new Set([
-  "dbo",
-  "dc",
-  "dcterms",
-  "foaf",
-  "gr",
-  "ldkit",
-  "owl",
-  "rdf",
-  "rdfs",
-  "schema",
-  "sioc",
-  "skos",
-  "xsd",
-]);
+// Derived from LDkit's built-in NAMESPACES rather than hand-curated, so
+// adding or removing a built-in (e.g. a future `prov`) auto-propagates.
+// The IRI set drives "do we need a createNamespace declaration?"; the
+// prefix set drives collision detection against `import { … } from
+// "ldkit/namespaces"` (e.g. user `@prefix schema: <https://schema.org/>`
+// vs LDkit's `http://schema.org/` — same prefix name, different IRI).
+const BUILTIN_NAMESPACE_IRIS: Set<string> = new Set(
+  NAMESPACES.map((n) => n.$iri),
+);
+const BUILTIN_NAMESPACE_PREFIXES: Set<string> = new Set(
+  NAMESPACES.map((n) => n.$prefix.replace(/:$/, "")),
+);
 
 const RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const RDFS = "http://www.w3.org/2000/01/rdf-schema#";
@@ -117,25 +89,6 @@ export type ShaclConversionResult = {
 export function shaclToSchema(turtle: string): ShaclConversionResult {
   const converter = new ShaclConverter();
   return converter.process(turtle);
-}
-
-function mergePropertySpecs(a: PropertySpec, b: PropertySpec): PropertySpec {
-  // SHACL "AND of property shapes" semantics:
-  // - type / schemaRef: last-wins for conflicts (rare in practice)
-  // - optional / array: AND — only loose if BOTH branches are loose, since the
-  //   stricter branch's cardinality dominates (e.g. one branch with maxCount=1
-  //   makes the property non-array regardless of what other branches say)
-  // - multilang / inverse: OR — these are intrinsic to the path, not loosened
-  const merged: PropertySpec = { id: a.id };
-  if (b.type !== undefined) merged.type = b.type;
-  else if (a.type !== undefined) merged.type = a.type;
-  if (b.schemaRef !== undefined) merged.schemaRef = b.schemaRef;
-  else if (a.schemaRef !== undefined) merged.schemaRef = a.schemaRef;
-  if (a.optional && b.optional) merged.optional = true;
-  if (a.array && b.array) merged.array = true;
-  if (a.multilang || b.multilang) merged.multilang = true;
-  if (a.inverse || b.inverse) merged.inverse = true;
-  return merged;
 }
 
 class ShaclConverter {
@@ -307,7 +260,7 @@ class ShaclConverter {
       if (properties[name]) {
         // SHACL semantics: multiple property shapes targeting the same path
         // are conjoined (AND). Merge with last-wins for conflicting fields.
-        properties[name] = mergePropertySpecs(properties[name], spec);
+        properties[name] = this.mergePropertySpecs(properties[name], spec);
       } else {
         properties[name] = spec;
       }
@@ -316,11 +269,36 @@ class ShaclConverter {
     return properties;
   }
 
+  /**
+   * Merge two PropertySpecs that target the same predicate (SHACL's
+   * conjunction-of-property-shapes semantics):
+   * - type / schemaRef: last-wins for conflicts (rare in practice)
+   * - optional / array: AND — only loose if BOTH branches are loose, since
+   *   the stricter branch's cardinality dominates (e.g. one branch with
+   *   maxCount=1 makes the property non-array regardless of other branches)
+   * - multilang / inverse: OR — these are intrinsic to the path, not loosened
+   */
+  private mergePropertySpecs(a: PropertySpec, b: PropertySpec): PropertySpec {
+    const merged: PropertySpec = { id: a.id };
+    if (b.type !== undefined) merged.type = b.type;
+    else if (a.type !== undefined) merged.type = a.type;
+    if (b.schemaRef !== undefined) merged.schemaRef = b.schemaRef;
+    else if (a.schemaRef !== undefined) merged.schemaRef = a.schemaRef;
+    if (a.optional && b.optional) merged.optional = true;
+    if (a.array && b.array) merged.array = true;
+    if (a.multilang || b.multilang) merged.multilang = true;
+    if (a.inverse || b.inverse) merged.inverse = true;
+    return merged;
+  }
+
   private buildProperty(
     propertyNode: Term,
     enclosingShapeIri?: string,
   ): { name: string; spec: PropertySpec } {
-    const { iri: pathIri, inverse } = this.resolvePath(propertyNode);
+    const { iri: pathIri, inverse } = this.resolvePath(
+      propertyNode,
+      enclosingShapeIri,
+    );
     const name = this.getSuffix(pathIri);
 
     const spec: PropertySpec = { id: pathIri };
@@ -384,10 +362,12 @@ class ShaclConverter {
 
   private resolvePath(
     propertyNode: Term,
+    enclosingShapeIri?: string,
   ): { iri: string; inverse: boolean } {
+    const ctx = enclosingShapeIri ? ` on shape <${enclosingShapeIri}>` : "";
     const pathTerm = this.getObjectTerm(propertyNode, SH_PATH);
     if (!pathTerm) {
-      throw new Error("Property shape is missing sh:path");
+      throw new Error(`Property shape${ctx} is missing sh:path`);
     }
     if (pathTerm.termType === "NamedNode") {
       return { iri: pathTerm.value, inverse: false };
@@ -399,7 +379,7 @@ class ShaclConverter {
       }
     }
     throw new Error(
-      `Unsupported sh:path: only simple predicate IRIs and sh:inversePath are supported (got ${pathTerm.termType})`,
+      `Unsupported sh:path${ctx}: only simple predicate IRIs and sh:inversePath are supported (got ${pathTerm.termType})`,
     );
   }
 

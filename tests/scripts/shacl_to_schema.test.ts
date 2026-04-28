@@ -1,4 +1,4 @@
-import { assertEquals } from "../test_deps.ts";
+import { assertEquals, assertThrows } from "../test_deps.ts";
 import { shaclToSchema } from "../../scripts/shacl_to_schema.ts";
 import {
   type ExtraNamespace,
@@ -73,6 +73,41 @@ m:CampaignShape a sh:NodeShape ;
     { iri: "https://schema.org/", prefix: "schema_" },
   ];
   assertEquals(result.extraNamespaces, expected);
+});
+
+Deno.test("Scripts / SHACL to Schema / Missing sh:path error names the enclosing shape", () => {
+  // When a property shape has no sh:path, the error message must identify
+  // *which* shape it belongs to — otherwise debugging a 14k-line SHACL is
+  // a needle-in-a-haystack.
+  const input = `${PREFIXES}
+ex:PersonShape a sh:NodeShape ;
+  sh:targetClass ex:Person ;
+  sh:property [ sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] .
+`;
+
+  assertThrows(
+    () => shaclToSchema(input),
+    Error,
+    "PersonShape",
+  );
+});
+
+Deno.test("Scripts / SHACL to Schema / Complex sh:path error names the enclosing shape", () => {
+  // Same context-in-error rule for the unsupported-path case.
+  const input = `${PREFIXES}
+ex:PersonShape a sh:NodeShape ;
+  sh:targetClass ex:Person ;
+  sh:property [
+    sh:path ( ex:hop1 ex:hop2 ) ;
+    sh:datatype xsd:string
+  ] .
+`;
+
+  assertThrows(
+    () => shaclToSchema(input),
+    Error,
+    "PersonShape",
+  );
 });
 
 Deno.test("Scripts / SHACL to Schema / Single property with default datatype", () => {
