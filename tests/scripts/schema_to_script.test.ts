@@ -1,5 +1,6 @@
 import { assertEquals } from "../test_deps.ts";
 import {
+  type ExtraNamespace,
   type SchemaSpec,
   schemaToScript,
 } from "../../scripts/schema_to_script.ts";
@@ -13,6 +14,15 @@ function s(strings: TemplateStringsArray) {
 
 const test = (schemas: SchemaSpec[], script: string) => {
   const result = schemaToScript(schemas);
+  assertEquals(result, script);
+};
+
+const testWithExtras = (
+  schemas: SchemaSpec[],
+  extras: ExtraNamespace[],
+  script: string,
+) => {
+  const result = schemaToScript(schemas, extras);
   assertEquals(result, script);
 };
 
@@ -304,4 +314,189 @@ Deno.test("Scripts / Schema To Script / Property flags", () => {
   `;
 
   test([schema], script);
+});
+
+Deno.test("Scripts / Schema To Script / Extra namespace emits createNamespace block", () => {
+  const schema: SchemaSpec = {
+    name: "PersonSchema",
+    type: ["https://marketer.com/vocab#Person"],
+    properties: {
+      name: { id: "https://marketer.com/vocab#name" },
+      age: {
+        id: "https://marketer.com/vocab#age",
+        type: "http://www.w3.org/2001/XMLSchema#integer",
+      },
+    },
+  };
+
+  const extras: ExtraNamespace[] = [
+    { iri: "https://marketer.com/vocab#", prefix: "m" },
+  ];
+
+  const script = s`
+    import { createNamespace } from "ldkit";
+    import { xsd } from "ldkit/namespaces";
+
+    export const m = createNamespace(
+      {
+        iri: "https://marketer.com/vocab#",
+        prefix: "m:",
+        terms: [
+          "Person",
+          "age",
+          "name",
+        ],
+      } as const,
+    );
+
+    export const PersonSchema = {
+      "@type": m.Person,
+      name: m.name,
+      age: {
+        "@id": m.age,
+        "@type": xsd.integer,
+      },
+    } as const;
+  `;
+
+  testWithExtras([schema], extras, script);
+});
+
+Deno.test("Scripts / Schema To Script / Extra namespace bracket access for non-identifier local parts", () => {
+  // Hyphens, dots, etc. are valid in IRI local parts but invalid in TS dot
+  // access. The printer must use bracket access for those.
+  const schema: SchemaSpec = {
+    name: "AdSchema",
+    type: ["https://ex.org/Ad-Type"],
+    properties: {
+      ref: { id: "https://ex.org/foo-bar" },
+    },
+  };
+
+  const extras: ExtraNamespace[] = [
+    { iri: "https://ex.org/", prefix: "ex" },
+  ];
+
+  const script = s`
+    import { createNamespace } from "ldkit";
+
+    export const ex = createNamespace(
+      {
+        iri: "https://ex.org/",
+        prefix: "ex:",
+        terms: [
+          "Ad-Type",
+          "foo-bar",
+        ],
+      } as const,
+    );
+
+    export const AdSchema = {
+      "@type": ex["Ad-Type"],
+      ref: ex["foo-bar"],
+    } as const;
+  `;
+
+  testWithExtras([schema], extras, script);
+});
+
+Deno.test("Scripts / Schema To Script / Extra namespaces sorted by IRI length descending", () => {
+  // When multiple extras share a base IRI prefix, the longest must match
+  // first so that `https://ex.org/sub/foo` resolves to `exsub.foo`, not
+  // `ex.sub/foo` (which would be a lexer error).
+  const schema: SchemaSpec = {
+    name: "TheSchema",
+    type: [],
+    properties: {
+      a: { id: "https://ex.org/a" },
+      b: { id: "https://ex.org/sub/b" },
+    },
+  };
+
+  const extras: ExtraNamespace[] = [
+    { iri: "https://ex.org/", prefix: "ex" },
+    { iri: "https://ex.org/sub/", prefix: "exsub" },
+  ];
+
+  const script = s`
+    import { createNamespace } from "ldkit";
+
+    export const exsub = createNamespace(
+      {
+        iri: "https://ex.org/sub/",
+        prefix: "exsub:",
+        terms: [
+          "b",
+        ],
+      } as const,
+    );
+
+    export const ex = createNamespace(
+      {
+        iri: "https://ex.org/",
+        prefix: "ex:",
+        terms: [
+          "a",
+        ],
+      } as const,
+    );
+
+    export const TheSchema = {
+      a: ex.a,
+      b: exsub.b,
+    } as const;
+  `;
+
+  testWithExtras([schema], extras, script);
+});
+
+Deno.test("Scripts / Schema To Script / Unused extra namespaces are dropped", () => {
+  // An extra namespace passed in but unreferenced by any schema should NOT
+  // produce a createNamespace block (would be dead code in the output).
+  const schema: SchemaSpec = {
+    name: "TheSchema",
+    type: [],
+    properties: {
+      name: { id: "http://schema.org/name" },
+    },
+  };
+
+  const extras: ExtraNamespace[] = [
+    { iri: "https://unused.example/", prefix: "unused" },
+  ];
+
+  const script = s`
+    import { schema } from "ldkit/namespaces";
+
+    export const TheSchema = {
+      name: schema.name,
+    } as const;
+  `;
+
+  testWithExtras([schema], extras, script);
+});
+
+Deno.test("Scripts / Schema To Script / IRI not under any namespace falls back to literal", () => {
+  // If no extra or built-in namespace matches, the IRI is emitted as a raw
+  // string literal. Confirms existing behavior survives extra-namespace
+  // handling.
+  const schema: SchemaSpec = {
+    name: "TheSchema",
+    type: [],
+    properties: {
+      orphan: { id: "https://nobody.example/foo" },
+    },
+  };
+
+  const extras: ExtraNamespace[] = [
+    { iri: "https://other.example/", prefix: "other" },
+  ];
+
+  const script = s`
+    export const TheSchema = {
+      orphan: "https://nobody.example/foo",
+    } as const;
+  `;
+
+  testWithExtras([schema], extras, script);
 });
