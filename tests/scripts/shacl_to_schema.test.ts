@@ -1,10 +1,13 @@
 import { assertEquals } from "../test_deps.ts";
 import { shaclToSchema } from "../../scripts/shacl_to_schema.ts";
-import { type SchemaSpec } from "../../scripts/schema_to_script.ts";
+import {
+  type ExtraNamespace,
+  type SchemaSpec,
+} from "../../scripts/schema_to_script.ts";
 
 const testSchemas = (ttl: string, schemas: SchemaSpec[]) => {
   const result = shaclToSchema(ttl);
-  assertEquals(result, schemas);
+  assertEquals(result.schemas, schemas);
 };
 
 const testSchema = (ttl: string, schema: SchemaSpec) => {
@@ -18,6 +21,59 @@ const PREFIXES = `
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 `;
+
+Deno.test("Scripts / SHACL to Schema / Project namespaces emitted as createNamespace specs", () => {
+  // User-declared @prefix declarations whose IRI is not an LDkit built-in
+  // surface as `extraNamespaces`. Built-in IRIs (xsd, rdfs, sh) and unused
+  // ones are dropped. Conflicting prefix names get suffixed with `_`.
+  const input = `
+@prefix m: <https://marketer.com/vocab#> .
+@prefix attio: <https://marketer.com/vocab/attio#> .
+@prefix schema: <https://schema.org/> .
+@prefix unused: <http://example.org/unused#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+m:CampaignShape a sh:NodeShape ;
+  sh:targetClass m:Campaign ;
+  sh:property [ sh:path m:label ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] ;
+  sh:property [ sh:path schema:dateCreated ; sh:datatype xsd:dateTime ; sh:minCount 1 ; sh:maxCount 1 ] ;
+  sh:property [ sh:path attio:source ; sh:nodeKind sh:IRI ; sh:minCount 1 ; sh:maxCount 1 ] .
+`;
+
+  const result = shaclToSchema(input);
+
+  // Schemas use raw IRIs in the IR; the printer applies the namespace
+  // prefixes downstream.
+  assertEquals(result.schemas, [
+    {
+      name: "CampaignSchema",
+      type: ["https://marketer.com/vocab#Campaign"],
+      properties: {
+        label: { id: "https://marketer.com/vocab#label" },
+        dateCreated: {
+          id: "https://schema.org/dateCreated",
+          type: "http://www.w3.org/2001/XMLSchema#dateTime",
+        },
+        source: {
+          id: "https://marketer.com/vocab/attio#source",
+          type: "@id",
+        },
+      },
+    },
+  ]);
+
+  // Three project namespaces emitted (m, attio, schema_), in the order they
+  // were declared. Built-in `sh` and `xsd` are filtered out. `unused` is
+  // dropped because no IRI references it. The `schema` prefix conflicts with
+  // LDkit's built-in import name, so it's suffixed to `schema_`.
+  const expected: ExtraNamespace[] = [
+    { iri: "https://marketer.com/vocab#", prefix: "m" },
+    { iri: "https://marketer.com/vocab/attio#", prefix: "attio" },
+    { iri: "https://schema.org/", prefix: "schema_" },
+  ];
+  assertEquals(result.extraNamespaces, expected);
+});
 
 Deno.test("Scripts / SHACL to Schema / Single property with default datatype", () => {
   const input = `${PREFIXES}

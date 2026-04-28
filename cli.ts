@@ -111,8 +111,8 @@ program.command("shacl-to-schema")
   .action(async (method, input) => {
     try {
       const resolvedInput = await resolve(method, input);
-      const schema = shaclToSchema(resolvedInput);
-      console.log(schemaToScript(schema));
+      const { schemas, extraNamespaces } = shaclToSchema(resolvedInput);
+      console.log(schemaToScript(schemas, extraNamespaces));
     } catch (error: unknown) {
       console.error(styleText("red", `${(error as Error).message}`));
     }

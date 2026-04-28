@@ -1,6 +1,52 @@
-import { Parser, Store, type Term } from "npm:n3@^1.26.0";
+import { Parser, type Quad, Store, type Term } from "npm:n3@^1.26.0";
 
-import { type PropertySpec, type SchemaSpec } from "./schema_to_script.ts";
+import {
+  type ExtraNamespace,
+  type PropertySpec,
+  type SchemaSpec,
+} from "./schema_to_script.ts";
+
+// Built-in LDkit namespaces — prefixes declared in the SHACL whose base IRI
+// matches one of these EXACTLY will NOT be re-emitted as createNamespace()
+// calls (the printer falls back on the built-in import). IRIs must match
+// LDkit's built-ins verbatim — `https://schema.org/` is NOT here because
+// LDkit's `schema` namespace uses `http://schema.org/`, so they are distinct
+// and must each get their own declaration to avoid mismatched query IRIs.
+// Keep in sync with `NAMESPACES` in schema_to_script.ts.
+const BUILTIN_NAMESPACE_IRIS = new Set([
+  "http://dbpedia.org/ontology/",
+  "http://purl.org/dc/elements/1.1/",
+  "http://purl.org/dc/terms/",
+  "http://xmlns.com/foaf/0.1/",
+  "http://purl.org/goodrelations/v1#",
+  "https://ldkit.io/ontology/",
+  "http://www.w3.org/2002/07/owl#",
+  "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+  "http://www.w3.org/2000/01/rdf-schema#",
+  "http://schema.org/",
+  "http://rdfs.org/sioc/ns#",
+  "http://www.w3.org/2004/02/skos/core#",
+  "http://www.w3.org/2001/XMLSchema#",
+]);
+
+// LDkit's built-in namespace prefix names. If a user-declared SHACL prefix
+// uses the same name with a *different* IRI, we rename to avoid colliding
+// with the `import { ... } from "ldkit/namespaces"` line.
+const BUILTIN_NAMESPACE_PREFIXES = new Set([
+  "dbo",
+  "dc",
+  "dcterms",
+  "foaf",
+  "gr",
+  "ldkit",
+  "owl",
+  "rdf",
+  "rdfs",
+  "schema",
+  "sioc",
+  "skos",
+  "xsd",
+]);
 
 const RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const RDFS = "http://www.w3.org/2000/01/rdf-schema#";
@@ -63,7 +109,12 @@ type ReducedOr =
   | { kind: "iri" }
   | { kind: "untyped" };
 
-export function shaclToSchema(turtle: string): SchemaSpec[] {
+export type ShaclConversionResult = {
+  schemas: SchemaSpec[];
+  extraNamespaces: ExtraNamespace[];
+};
+
+export function shaclToSchema(turtle: string): ShaclConversionResult {
   const converter = new ShaclConverter();
   return converter.process(turtle);
 }
@@ -93,10 +144,10 @@ class ShaclConverter {
   private shapeIriToName = new Map<string, string>();
   private classIriToSchemaName = new Map<string, string>();
   private usedNames = new Set<string>();
+  private prefixMap: Record<string, string> = {};
 
-  public process(turtle: string): SchemaSpec[] {
-    const parser = new Parser();
-    this.store = new Store(parser.parse(turtle));
+  public process(turtle: string): ShaclConversionResult {
+    this.parseWithPrefixes(turtle);
 
     const shapeIris = this.findNodeShapes();
 
@@ -110,7 +161,76 @@ class ShaclConverter {
       this.schemas.push(schema);
     }
 
-    return this.schemas;
+    return {
+      schemas: this.schemas,
+      extraNamespaces: this.deriveExtraNamespaces(),
+    };
+  }
+
+  /**
+   * Use the n3 Parser's streaming callback API to capture both the quads and
+   * the `@prefix` declarations from the source Turtle. The synchronous
+   * `parser.parse(turtle)` overload returns only quads — we want the prefix
+   * map so we can re-emit user-defined vocabularies as `createNamespace()`
+   * declarations in the generated TS.
+   */
+  private parseWithPrefixes(turtle: string): void {
+    // Parse the quads synchronously (n3's streaming callback form is
+    // asynchronous and would race the rest of process()).
+    const parser = new Parser();
+    this.store = new Store(parser.parse(turtle));
+
+    // Extract `@prefix` declarations directly from the source. The Turtle
+    // grammar guarantees the form `@prefix name: <iri> .` (case-insensitive
+    // for the `@prefix` keyword, with optional whitespace), so a simple
+    // regex is sufficient and avoids the streaming-callback complexity.
+    const prefixRe =
+      /@prefix\s+([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*<([^>]+)>\s*\./g;
+    for (const match of turtle.matchAll(prefixRe)) {
+      const [, prefix, iri] = match;
+      this.prefixMap[prefix] = iri;
+    }
+  }
+
+  /**
+   * From all `@prefix` declarations seen in the input, keep only those whose
+   * base IRI is NOT already a built-in LDkit namespace AND whose IRI is
+   * actually used by something in the generated schemas. Each one becomes a
+   * `createNamespace()` block in the generated TS.
+   */
+  private deriveExtraNamespaces(): ExtraNamespace[] {
+    const usedIris = new Set<string>();
+    for (const schema of this.schemas) {
+      for (const t of schema.type) usedIris.add(t);
+      for (const prop of Object.values(schema.properties)) {
+        usedIris.add(prop.id);
+        if (prop.type) usedIris.add(prop.type);
+      }
+    }
+
+    const result: ExtraNamespace[] = [];
+    const seenIris = new Set<string>();
+    const usedNames = new Set<string>();
+    for (const [prefix, iri] of Object.entries(this.prefixMap)) {
+      if (BUILTIN_NAMESPACE_IRIS.has(iri)) continue;
+      if (seenIris.has(iri)) continue; // first prefix declared wins
+      const isUsed = [...usedIris].some((u) => u.startsWith(iri));
+      if (!isUsed) continue;
+      seenIris.add(iri);
+      // Avoid colliding with built-in namespace prefix imports — e.g. a user
+      // `@prefix schema: <https://schema.org/>` (HTTPS) would otherwise clash
+      // with `import { schema } from "ldkit/namespaces"` (HTTP). Suffix `_`
+      // until unique among both built-ins and previously-emitted extras.
+      let safeName = prefix;
+      while (
+        BUILTIN_NAMESPACE_PREFIXES.has(safeName) || usedNames.has(safeName)
+      ) {
+        safeName += "_";
+      }
+      usedNames.add(safeName);
+      result.push({ iri, prefix: safeName });
+    }
+    return result;
   }
 
   private findNodeShapes(): string[] {
