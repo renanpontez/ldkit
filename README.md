@@ -1,5 +1,7 @@
 # LDkit - Linked Data for TypeScript developers.
 
+> 🍴 **Fork notice:** this repository is an interim fork of [karelklima/ldkit](https://github.com/karelklima/ldkit) published as `@renanpontez/ldkit` on npm. It ships a `shacl-to-schema` CLI converter ([upstream issue #140](https://github.com/karelklima/ldkit/issues/140)) ahead of its merge into upstream. Once the change lands in `karelklima/ldkit`, this fork will be deprecated — consumers should switch back to the official `ldkit` package.
+
 **LDkit** is **Linked Data** query toolkit for **TypeScript** developers. It
 provides ORM-like abstraction over [RDF](https://www.w3.org/RDF/) datasources.
 You define the data model and then you can retrieve or update data without any

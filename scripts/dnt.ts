@@ -34,19 +34,20 @@ await build({
   declaration: "inline",
   package: {
     // package.json properties
-    name: "ldkit",
+    name: "@renanpontez/ldkit",
     version: Deno.args[0],
-    description: "LDkit, a Linked Data query toolkit for TypeScript developers",
+    description:
+      "LDkit, a Linked Data query toolkit for TypeScript developers (fork with shacl-to-schema converter)",
     homepage: "https://ldkit.io",
     author: "Karel Klima <karelklima@gmail.com> (https://karelklima.com)",
-    keywords: ["linked data", "rdf", "sparql", "deno"],
+    keywords: ["linked data", "rdf", "sparql", "deno", "shacl"],
     license: "MIT",
     repository: {
       type: "git",
-      url: "git+https://github.com/karelklima/ldkit.git",
+      url: "git+https://github.com/renanpontez/ldkit.git",
     },
     bugs: {
-      url: "https://github.com/karelklima/ldkit/issues",
+      url: "https://github.com/renanpontez/ldkit/issues",
     },
   },
   postBuild() {
