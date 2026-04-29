@@ -7,13 +7,6 @@ import {
   type SchemaSpec,
 } from "./schema_to_script.ts";
 
-// Built-in LDkit namespace IRIs, derived from the shared NAMESPACES
-// constant. User-declared @prefix entries whose IRI exactly matches one of
-// these are dropped (the printer's existing built-in import covers them).
-// `https://schema.org/` is NOT in this set — LDkit's `schema` namespace is
-// `http://schema.org/`, so they are distinct IRIs and each gets its own
-// declaration. The user's prefix wins the clean variable name in the
-// generated output.
 const BUILTIN_NAMESPACE_IRIS: Set<string> = new Set(
   NAMESPACES.map((n) => n.$iri),
 );
@@ -48,8 +41,7 @@ const SH_AND = `${SH}and`;
 const SH_OR = `${SH}or`;
 const SH_IN = `${SH}in`;
 
-// Numeric widening order: leftmost = widest. Used to reduce sh:or alternatives
-// like (xsd:decimal | xsd:double | xsd:integer) to a single TS-compatible type.
+// Numeric widening order: leftmost = widest.
 const NUMERIC_WIDENING = [
   `${XSD}decimal`,
   `${XSD}double`,
@@ -71,7 +63,7 @@ type Constraints = {
   refNode?: string;
   refClass?: string;
   uniqueLang?: boolean;
-  inFirstType?: string; // type derived from sh:in's first list element
+  inFirstType?: string;
 };
 
 type ReducedOr =
@@ -118,18 +110,7 @@ class ShaclConverter {
     };
   }
 
-  /**
-   * Use the n3 Parser's streaming callback API to capture both the quads and
-   * the `@prefix` declarations from the source Turtle. The synchronous
-   * `parser.parse(turtle)` overload returns only quads — we want the prefix
-   * map so we can re-emit user-defined vocabularies as `createNamespace()`
-   * declarations in the generated TS.
-   */
   private parseWithPrefixes(turtle: string): void {
-    // Parse the quads synchronously (n3's streaming callback form is
-    // asynchronous and would race the rest of process()). Wrap the call so
-    // that malformed-Turtle errors surface with a clear "Failed to parse"
-    // prefix, separating syntax issues from converter logic issues.
     const parser = new Parser();
     let quads;
     try {
@@ -140,10 +121,6 @@ class ShaclConverter {
     }
     this.store = new Store(quads);
 
-    // Extract `@prefix` declarations directly from the source. The Turtle
-    // grammar guarantees the form `@prefix name: <iri> .` (case-insensitive
-    // for the `@prefix` keyword, with optional whitespace), so a simple
-    // regex is sufficient and avoids the streaming-callback complexity.
     const prefixRe =
       /@prefix\s+([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*<([^>]+)>\s*\./g;
     for (const match of turtle.matchAll(prefixRe)) {
@@ -152,12 +129,6 @@ class ShaclConverter {
     }
   }
 
-  /**
-   * From all `@prefix` declarations seen in the input, keep only those whose
-   * base IRI is NOT already a built-in LDkit namespace AND whose IRI is
-   * actually used by something in the generated schemas. Each one becomes a
-   * `createNamespace()` block in the generated TS.
-   */
   private deriveExtraNamespaces(): ExtraNamespace[] {
     const usedIris = new Set<string>();
     for (const schema of this.schemas) {
@@ -173,13 +144,10 @@ class ShaclConverter {
     const usedNames = new Set<string>();
     for (const [prefix, iri] of Object.entries(this.prefixMap)) {
       if (BUILTIN_NAMESPACE_IRIS.has(iri)) continue;
-      if (seenIris.has(iri)) continue; // first prefix declared wins
+      if (seenIris.has(iri)) continue;
       const isUsed = [...usedIris].some((u) => u.startsWith(iri));
       if (!isUsed) continue;
       seenIris.add(iri);
-      // The user's prefix takes precedence over LDkit built-ins of the same
-      // name. The printer drops the corresponding built-in import — IRIs
-      // under the shadowed built-in fall back to literal strings.
       let safeName = prefix;
       while (usedNames.has(safeName)) {
         safeName += "_";
@@ -260,10 +228,6 @@ class ShaclConverter {
     const properties: SchemaSpec["properties"] = {};
 
     for (const q of propertyNodes) {
-      // Real-world SHACL files sometimes have malformed sh:property values
-      // (e.g. `sh:property "literal"` from a typo or buggy generator).
-      // Skip non-node values with a stderr warning rather than crashing the
-      // whole conversion — the rest of the shape's properties stay usable.
       if (
         q.object.termType !== "NamedNode" &&
         q.object.termType !== "BlankNode"
@@ -275,8 +239,6 @@ class ShaclConverter {
       }
       const { name, spec } = this.buildProperty(q.object, shapeIri);
       if (properties[name]) {
-        // SHACL semantics: multiple property shapes targeting the same path
-        // are conjoined (AND). Merge with last-wins for conflicting fields.
         properties[name] = this.mergePropertySpecs(properties[name], spec);
       } else {
         properties[name] = spec;
@@ -286,24 +248,12 @@ class ShaclConverter {
     return properties;
   }
 
-  /**
-   * Merge two PropertySpecs that target the same predicate (SHACL's
-   * conjunction-of-property-shapes semantics):
-   * - schemaRef: takes precedence over type. LDkit's encoder, decoder, query
-   *   builder, and TS type derivation all ignore `@type` when `@schema` is
-   *   present (see library/{decoder,encoder,schema/interface}.ts in this
-   *   repo), so emitting both would be dead code.
-   * - type (only when no schemaRef on either side): last-wins for conflicts
-   * - optional / array: AND — only loose if BOTH branches are loose, since
-   *   the stricter branch's cardinality dominates (e.g. one branch with
-   *   maxCount=1 makes the property non-array regardless of other branches)
-   * - multilang / inverse: OR — these are intrinsic to the path, not loosened
-   */
+  // SHACL conjoins multiple property shapes on the same path (AND). LDkit's
+  // runtime ignores @type when @schema is set, so schemaRef wins over type.
   private mergePropertySpecs(a: PropertySpec, b: PropertySpec): PropertySpec {
     const merged: PropertySpec = { id: a.id };
     if (b.schemaRef !== undefined || a.schemaRef !== undefined) {
       merged.schemaRef = b.schemaRef ?? a.schemaRef;
-      // Intentionally do NOT copy `type` — schemaRef wins.
     } else if (b.type !== undefined) {
       merged.type = b.type;
     } else if (a.type !== undefined) {
@@ -344,18 +294,13 @@ class ShaclConverter {
     } else if (refTarget && !isSelfRef) {
       spec.schemaRef = this.resolveSchemaRef(refTarget);
     } else if (isSelfRef) {
-      // Self-referential shapes (a Person whose `friend` is also a Person)
-      // would create a circular dependency that LDkit's schema_to_script
-      // cannot render. Fall back to an untyped IRI reference; users can
-      // hand-edit the generated schema if they need stronger typing.
+      // Circular schema refs would crash the printer; fall back to IRI.
       spec.type = "@id";
     } else if (direct.datatype && direct.datatype !== XSD_STRING) {
       spec.type = direct.datatype;
     } else if (direct.nodeKind === SH_IRI) {
       spec.type = "@id";
     } else if (direct.inFirstType) {
-      // sh:in: use the first list element's type; matches shex-to-schema's
-      // simplification (no TS literal union — runtime can't enforce it).
       if (direct.inFirstType === "@id") {
         spec.type = "@id";
       } else if (direct.inFirstType !== XSD_STRING) {
@@ -369,7 +314,6 @@ class ShaclConverter {
       } else if (reduced.kind === "iri") {
         spec.type = "@id";
       }
-      // kind === "untyped" → leave as default (no @type)
     }
 
     const minCount = this.getObjectInteger(propertyNode, SH_MIN_COUNT);
@@ -408,12 +352,6 @@ class ShaclConverter {
     );
   }
 
-  /**
-   * Collect direct constraints, recursing into sh:and (merge with last-wins
-   * semantics) and sh:in (derive type from first list element). sh:not is
-   * silently ignored — it expresses validation negation that has no analog
-   * in LDkit's query schema.
-   */
   private collectConstraints(node: Term): Constraints {
     const c: Constraints = {
       datatype: this.getObjectIri(node, SH_DATATYPE),
@@ -461,16 +399,6 @@ class ShaclConverter {
     );
   }
 
-  /**
-   * Reduce sh:or alternatives to a single representable type:
-   * - all numeric datatypes → widest type from NUMERIC_WIDENING
-   * - all same datatype → that datatype
-   * - all sh:node/sh:class refs → untyped IRI ref
-   * - mixed (or unrepresentable) → untyped (no @type)
-   *
-   * Caller should mark the resulting property as @optional to reflect that
-   * its type is a simplification of multiple alternatives.
-   */
   private reduceOrBranches(branches: Constraints[]): ReducedOr {
     if (branches.length === 0) {
       return { kind: "untyped" };
@@ -493,7 +421,6 @@ class ShaclConverter {
       if (unique.size === 1) {
         return { kind: "datatype", value: dts[0] };
       }
-      // Heterogeneous non-numeric datatypes — cannot pick safely.
       return { kind: "untyped" };
     }
 
@@ -549,13 +476,6 @@ class ShaclConverter {
     return name;
   }
 
-  /**
-   * Convert an arbitrary string into a valid TypeScript identifier. SHACL
-   * IRIs commonly include `-`, `.`, `:` and other characters that work as
-   * RDF local parts but break TS identifier syntax (`const Foo-Bar = …`).
-   * Replace each invalid character with `_`; prefix a `_` if the result
-   * starts with a digit so the identifier is well-formed.
-   */
   private sanitizeIdentifier(value: string): string {
     let cleaned = value.replace(/[^A-Za-z0-9_$]/g, "_");
     if (cleaned.length > 0 && /^[0-9]/.test(cleaned)) {
