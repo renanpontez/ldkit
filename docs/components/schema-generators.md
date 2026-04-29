@@ -72,9 +72,11 @@ Supported SHACL features:
 - **Project namespace generation** — every `@prefix` declaration in the source
   whose IRI is not an LDkit built-in is re-emitted at the top of the generated
   file as a `createNamespace()` call, and IRIs under that prefix render as e.g.
-  `m.totalRevenue` instead of raw IRI strings. Prefix names that conflict with
-  LDkit's built-in imports (e.g. `schema` for `https://schema.org/` vs LDkit's
-  `http://schema.org/`) are suffixed with `_` to avoid collisions.
+  `ex.totalRevenue` instead of raw IRI strings. When a user-declared prefix
+  shadows an LDkit built-in's name (e.g. `schema` for `https://schema.org/` vs
+  LDkit's built-in `http://schema.org/`), the user's prefix wins the clean
+  variable name; the built-in is not imported and IRIs under it fall back to
+  literal strings.
 - `sh:NodeShape` discovery (named shapes only)
 - `sh:targetClass` mapped to schema `@type` (multiple targets allowed)
 - shapes that are also `rdfs:Class` use the shape IRI as `@type`

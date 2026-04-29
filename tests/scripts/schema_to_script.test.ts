@@ -319,28 +319,28 @@ Deno.test("Scripts / Schema To Script / Property flags", () => {
 Deno.test("Scripts / Schema To Script / Extra namespace emits createNamespace block", () => {
   const schema: SchemaSpec = {
     name: "PersonSchema",
-    type: ["https://marketer.com/vocab#Person"],
+    type: ["http://example.org/vocab#Person"],
     properties: {
-      name: { id: "https://marketer.com/vocab#name" },
+      name: { id: "http://example.org/vocab#name" },
       age: {
-        id: "https://marketer.com/vocab#age",
+        id: "http://example.org/vocab#age",
         type: "http://www.w3.org/2001/XMLSchema#integer",
       },
     },
   };
 
   const extras: ExtraNamespace[] = [
-    { iri: "https://marketer.com/vocab#", prefix: "m" },
+    { iri: "http://example.org/vocab#", prefix: "ex" },
   ];
 
   const script = s`
     import { createNamespace } from "ldkit";
     import { xsd } from "ldkit/namespaces";
 
-    export const m = createNamespace(
+    export const ex = createNamespace(
       {
-        iri: "https://marketer.com/vocab#",
-        prefix: "m:",
+        iri: "http://example.org/vocab#",
+        prefix: "ex:",
         terms: [
           "Person",
           "age",
@@ -350,10 +350,10 @@ Deno.test("Scripts / Schema To Script / Extra namespace emits createNamespace bl
     );
 
     export const PersonSchema = {
-      "@type": m.Person,
-      name: m.name,
+      "@type": ex.Person,
+      name: ex.name,
       age: {
-        "@id": m.age,
+        "@id": ex.age,
         "@type": xsd.integer,
       },
     } as const;
@@ -470,6 +470,49 @@ Deno.test("Scripts / Schema To Script / Unused extra namespaces are dropped", ()
 
     export const TheSchema = {
       name: schema.name,
+    } as const;
+  `;
+
+  testWithExtras([schema], extras, script);
+});
+
+Deno.test("Scripts / Schema To Script / Extra namespace shadowing a built-in: built-in import dropped, IRIs under it fall back to literal", () => {
+  // When a user-defined extra namespace shares its prefix name with an
+  // LDkit built-in (e.g. user `schema:` for HTTPS schema.org vs LDkit's
+  // built-in `schema` for HTTP schema.org), the user's prefix wins the
+  // clean name. The corresponding built-in is NOT imported, so any IRIs
+  // that would have matched it render as literal strings.
+  const schema: SchemaSpec = {
+    name: "TheSchema",
+    type: ["https://schema.org/Person"],
+    properties: {
+      name: { id: "https://schema.org/name" }, // matches user's HTTPS namespace
+      legacyName: { id: "http://schema.org/name" }, // would match LDkit built-in but built-in is shadowed
+    },
+  };
+
+  const extras: ExtraNamespace[] = [
+    { iri: "https://schema.org/", prefix: "schema" },
+  ];
+
+  const script = s`
+    import { createNamespace } from "ldkit";
+
+    export const schema = createNamespace(
+      {
+        iri: "https://schema.org/",
+        prefix: "schema:",
+        terms: [
+          "Person",
+          "name",
+        ],
+      } as const,
+    );
+
+    export const TheSchema = {
+      "@type": schema.Person,
+      name: schema.name,
+      legacyName: "http://schema.org/name",
     } as const;
   `;
 

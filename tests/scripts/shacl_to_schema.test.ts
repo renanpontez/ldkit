@@ -22,23 +22,74 @@ const PREFIXES = `
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 `;
 
+Deno.test("Scripts / SHACL to Schema / Mixed HTTP and HTTPS schema.org IRIs: user HTTPS wins; HTTP IRIs left raw in IR", () => {
+  // Real-world case: a SHACL file declares schema: as HTTPS schema.org
+  // (modern W3C convention) but also references an HTTP schema.org IRI
+  // directly via full-URI form. The user's HTTPS prefix wins the clean
+  // `schema` name in the registered extras. The HTTP IRI lands in the
+  // schema IR as a raw string — the printer (covered separately) falls
+  // back to a literal-string emission because LDkit's built-in `schema`
+  // import (which would have matched the HTTP IRI) is shadowed.
+  const input = `
+@prefix schema: <https://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://example.org/MixedShape> a sh:NodeShape ;
+  sh:targetClass <http://example.org/Mixed> ;
+  sh:property [
+    sh:path schema:name ;
+    sh:datatype xsd:string ;
+    sh:minCount 1 ;
+    sh:maxCount 1
+  ] ;
+  sh:property [
+    sh:path <http://schema.org/legacy> ;
+    sh:datatype xsd:string ;
+    sh:minCount 1 ;
+    sh:maxCount 1
+  ] .
+`;
+
+  const result = shaclToSchema(input);
+
+  assertEquals(result.schemas, [
+    {
+      name: "MixedSchema",
+      type: ["http://example.org/Mixed"],
+      properties: {
+        name: { id: "https://schema.org/name" },
+        legacy: { id: "http://schema.org/legacy" },
+      },
+    },
+  ]);
+
+  // Only the user's HTTPS schema.org is registered as an extra. The HTTP
+  // IRI has no @prefix declaration in the input, so it doesn't appear here.
+  assertEquals(result.extraNamespaces, [
+    { iri: "https://schema.org/", prefix: "schema" },
+  ]);
+});
+
 Deno.test("Scripts / SHACL to Schema / Project namespaces emitted as createNamespace specs", () => {
   // User-declared @prefix declarations whose IRI is not an LDkit built-in
-  // surface as `extraNamespaces`. Built-in IRIs (xsd, rdfs, sh) and unused
-  // ones are dropped. Conflicting prefix names get suffixed with `_`.
+  // surface as `extraNamespaces`. Built-in IRIs (xsd, sh) and unused ones
+  // are filtered out. The user's prefix wins the clean name even if it
+  // shadows an LDkit built-in's prefix (e.g. `schema:` here shadows LDkit's
+  // built-in `schema` namespace, which uses HTTP schema.org).
   const input = `
-@prefix m: <https://marketer.com/vocab#> .
-@prefix attio: <https://marketer.com/vocab/attio#> .
+@prefix ex: <http://example.org/vocab#> .
+@prefix sub: <http://example.org/vocab/sub#> .
 @prefix schema: <https://schema.org/> .
 @prefix unused: <http://example.org/unused#> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-m:CampaignShape a sh:NodeShape ;
-  sh:targetClass m:Campaign ;
-  sh:property [ sh:path m:label ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] ;
+ex:ItemShape a sh:NodeShape ;
+  sh:targetClass ex:Item ;
+  sh:property [ sh:path ex:label ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] ;
   sh:property [ sh:path schema:dateCreated ; sh:datatype xsd:dateTime ; sh:minCount 1 ; sh:maxCount 1 ] ;
-  sh:property [ sh:path attio:source ; sh:nodeKind sh:IRI ; sh:minCount 1 ; sh:maxCount 1 ] .
+  sh:property [ sh:path sub:source ; sh:nodeKind sh:IRI ; sh:minCount 1 ; sh:maxCount 1 ] .
 `;
 
   const result = shaclToSchema(input);
@@ -47,30 +98,31 @@ m:CampaignShape a sh:NodeShape ;
   // prefixes downstream.
   assertEquals(result.schemas, [
     {
-      name: "CampaignSchema",
-      type: ["https://marketer.com/vocab#Campaign"],
+      name: "ItemSchema",
+      type: ["http://example.org/vocab#Item"],
       properties: {
-        label: { id: "https://marketer.com/vocab#label" },
+        label: { id: "http://example.org/vocab#label" },
         dateCreated: {
           id: "https://schema.org/dateCreated",
           type: "http://www.w3.org/2001/XMLSchema#dateTime",
         },
         source: {
-          id: "https://marketer.com/vocab/attio#source",
+          id: "http://example.org/vocab/sub#source",
           type: "@id",
         },
       },
     },
   ]);
 
-  // Three project namespaces emitted (m, attio, schema_), in the order they
-  // were declared. Built-in `sh` and `xsd` are filtered out. `unused` is
-  // dropped because no IRI references it. The `schema` prefix conflicts with
-  // LDkit's built-in import name, so it's suffixed to `schema_`.
+  // Three project namespaces emitted: `ex`, `sub`, `schema`. Built-in `sh`
+  // and `xsd` are filtered. `unused` is dropped because no IRI references
+  // it. `schema` keeps its clean name even though LDkit has a built-in
+  // namespace by the same name — IRIs under the LDkit built-in fall back
+  // to literal strings (not exercised here; covered by a printer test).
   const expected: ExtraNamespace[] = [
-    { iri: "https://marketer.com/vocab#", prefix: "m" },
-    { iri: "https://marketer.com/vocab/attio#", prefix: "attio" },
-    { iri: "https://schema.org/", prefix: "schema_" },
+    { iri: "http://example.org/vocab#", prefix: "ex" },
+    { iri: "http://example.org/vocab/sub#", prefix: "sub" },
+    { iri: "https://schema.org/", prefix: "schema" },
   ];
   assertEquals(result.extraNamespaces, expected);
 });
@@ -390,13 +442,15 @@ ex:CompanyShape a sh:NodeShape ;
   testSchemas(input, [personSchema, companySchema]);
 });
 
-Deno.test("Scripts / SHACL to Schema / Complex shape mirroring metric repo m:Ad", () => {
+Deno.test("Scripts / SHACL to Schema / Realistic shape with mixed property kinds", () => {
+  // Exercises a single shape combining: an rdfs:label literal property with
+  // default xsd:string, an xsd:dateTime literal, an IRI-kind reference, a
+  // nested-shape reference, and an unbounded-cardinality string array.
   const input = `${PREFIXES}
-@prefix m: <https://marketer.com/vocab#> .
 @prefix schema: <https://schema.org/> .
 
-m:AdShape a sh:NodeShape ;
-  sh:targetClass m:Ad ;
+ex:ItemShape a sh:NodeShape ;
+  sh:targetClass ex:Item ;
   sh:property [
     sh:path rdfs:label ;
     sh:datatype xsd:string ;
@@ -408,28 +462,28 @@ m:AdShape a sh:NodeShape ;
     sh:maxCount 1
   ] ;
   sh:property [
-    sh:path m:status ;
+    sh:path ex:status ;
     sh:nodeKind sh:IRI ;
     sh:maxCount 1
   ] ;
   sh:property [
-    sh:path m:audience ;
-    sh:node m:AudienceShape ;
+    sh:path ex:category ;
+    sh:node ex:CategoryShape ;
     sh:maxCount 1
   ] ;
   sh:property [
-    sh:path m:tags ;
+    sh:path ex:tags ;
     sh:datatype xsd:string
   ] .
 
-m:AudienceShape a sh:NodeShape ;
-  sh:targetClass m:Audience ;
+ex:CategoryShape a sh:NodeShape ;
+  sh:targetClass ex:Category ;
   sh:property [ sh:path rdfs:label ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] .
 `;
 
-  const adSchema: SchemaSpec = {
-    name: "AdSchema",
-    type: ["https://marketer.com/vocab#Ad"],
+  const itemSchema: SchemaSpec = {
+    name: "ItemSchema",
+    type: ["http://example.org/Item"],
     properties: {
       label: {
         id: "http://www.w3.org/2000/01/rdf-schema#label",
@@ -441,32 +495,32 @@ m:AudienceShape a sh:NodeShape ;
         optional: true,
       },
       status: {
-        id: "https://marketer.com/vocab#status",
+        id: "http://example.org/status",
         type: "@id",
         optional: true,
       },
-      audience: {
-        id: "https://marketer.com/vocab#audience",
-        schemaRef: "AudienceSchema",
+      category: {
+        id: "http://example.org/category",
+        schemaRef: "CategorySchema",
         optional: true,
       },
       tags: {
-        id: "https://marketer.com/vocab#tags",
+        id: "http://example.org/tags",
         optional: true,
         array: true,
       },
     },
   };
 
-  const audienceSchema: SchemaSpec = {
-    name: "AudienceSchema",
-    type: ["https://marketer.com/vocab#Audience"],
+  const categorySchema: SchemaSpec = {
+    name: "CategorySchema",
+    type: ["http://example.org/Category"],
     properties: {
       label: { id: "http://www.w3.org/2000/01/rdf-schema#label" },
     },
   };
 
-  testSchemas(input, [adSchema, audienceSchema]);
+  testSchemas(input, [itemSchema, categorySchema]);
 });
 
 Deno.test("Scripts / SHACL to Schema / sh:or of numeric datatypes picks widest", () => {
@@ -738,12 +792,12 @@ ex:FacebookCarouselCard-InputShape a sh:NodeShape ;
 });
 
 Deno.test("Scripts / SHACL to Schema / Merging sh:nodeKind sh:IRI with sh:node keeps only schemaRef", () => {
-  // Real Metric pattern: `m:CampaignPerformanceSummaryShape` has multiple
-  // sh:property shapes on `m:campaign` — one with `sh:nodeKind sh:IRI` and
-  // another with `sh:node m:CampaignShape`. LDkit's encoder/decoder/query
-  // builder all ignore `@type` when `@schema` is present (see library/
-  // {decoder,encoder,schema/interface}.ts), so emitting both is dead code.
-  // The merge must drop `type` whenever either branch sets `schemaRef`.
+  // Some SHACL files declare multiple sh:property shapes on the same path,
+  // one with `sh:nodeKind sh:IRI` and another with `sh:node X`. LDkit's
+  // encoder/decoder/query builder all ignore `@type` when `@schema` is
+  // present (see library/{decoder,encoder,schema/interface}.ts), so
+  // emitting both is dead code. The merge must drop `type` whenever either
+  // branch sets `schemaRef`.
   const input = `${PREFIXES}
 ex:SummaryShape a sh:NodeShape ;
   sh:targetClass ex:Summary ;

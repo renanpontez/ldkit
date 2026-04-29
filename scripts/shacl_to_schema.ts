@@ -7,17 +7,15 @@ import {
   type SchemaSpec,
 } from "./schema_to_script.ts";
 
-// Derived from LDkit's built-in NAMESPACES rather than hand-curated, so
-// adding or removing a built-in (e.g. a future `prov`) auto-propagates.
-// The IRI set drives "do we need a createNamespace declaration?"; the
-// prefix set drives collision detection against `import { … } from
-// "ldkit/namespaces"` (e.g. user `@prefix schema: <https://schema.org/>`
-// vs LDkit's `http://schema.org/` — same prefix name, different IRI).
+// Built-in LDkit namespace IRIs, derived from the shared NAMESPACES
+// constant. User-declared @prefix entries whose IRI exactly matches one of
+// these are dropped (the printer's existing built-in import covers them).
+// `https://schema.org/` is NOT in this set — LDkit's `schema` namespace is
+// `http://schema.org/`, so they are distinct IRIs and each gets its own
+// declaration. The user's prefix wins the clean variable name in the
+// generated output.
 const BUILTIN_NAMESPACE_IRIS: Set<string> = new Set(
   NAMESPACES.map((n) => n.$iri),
-);
-const BUILTIN_NAMESPACE_PREFIXES: Set<string> = new Set(
-  NAMESPACES.map((n) => n.$prefix.replace(/:$/, "")),
 );
 
 const RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
@@ -179,14 +177,11 @@ class ShaclConverter {
       const isUsed = [...usedIris].some((u) => u.startsWith(iri));
       if (!isUsed) continue;
       seenIris.add(iri);
-      // Avoid colliding with built-in namespace prefix imports — e.g. a user
-      // `@prefix schema: <https://schema.org/>` (HTTPS) would otherwise clash
-      // with `import { schema } from "ldkit/namespaces"` (HTTP). Suffix `_`
-      // until unique among both built-ins and previously-emitted extras.
+      // The user's prefix takes precedence over LDkit built-ins of the same
+      // name. The printer drops the corresponding built-in import — IRIs
+      // under the shadowed built-in fall back to literal strings.
       let safeName = prefix;
-      while (
-        BUILTIN_NAMESPACE_PREFIXES.has(safeName) || usedNames.has(safeName)
-      ) {
+      while (usedNames.has(safeName)) {
         safeName += "_";
       }
       usedNames.add(safeName);

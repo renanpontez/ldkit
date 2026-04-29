@@ -55,12 +55,12 @@ export type SchemaSpec = {
 /**
  * A project-specific RDF namespace that should be emitted as a
  * `createNamespace()` declaration in the generated TypeScript and used to
- * prefix IRIs that fall under it (e.g. `m.totalRevenue` instead of the raw
- * `"https://marketer.com/vocab#totalRevenue"`).
+ * prefix IRIs that fall under it (e.g. `ex.totalRevenue` instead of the raw
+ * `"http://example.org/vocab#totalRevenue"`).
  */
 export type ExtraNamespace = {
-  iri: string; // base IRI, e.g. "https://marketer.com/vocab#"
-  prefix: string; // local TS variable name, e.g. "m"
+  iri: string; // base IRI, e.g. "http://example.org/vocab#"
+  prefix: string; // local TS variable name, e.g. "ex"
 };
 
 export function schemaToScript(
@@ -81,9 +81,18 @@ class SchemaPrinter {
   // (so we can emit `terms: [...]` in the createNamespace() call).
   private extraNamespaceTerms = new Map<string, Set<string>>();
 
+  // Names of LDkit built-in namespaces shadowed by a user-defined extra.
+  // These are not imported from "ldkit/namespaces"; IRIs that would resolve
+  // to them render as literal strings instead, so the user's prefix wins
+  // the clean variable name.
+  private readonly shadowedBuiltins: Set<string>;
+
   constructor(extraNamespaces: ExtraNamespace[] = []) {
     this.extraNamespaces = [...extraNamespaces].sort(
       (a, b) => b.iri.length - a.iri.length,
+    );
+    this.shadowedBuiltins = new Set(
+      this.extraNamespaces.map((ns) => ns.prefix),
     );
   }
 
@@ -183,7 +192,13 @@ class SchemaPrinter {
     }
     for (const namespace of NAMESPACES) {
       if (value.startsWith(namespace.$iri)) {
-        this.usedNamespaces.add(this.printPrefix(namespace));
+        const name = this.printPrefix(namespace);
+        if (this.shadowedBuiltins.has(name)) {
+          // User namespace took this name — IRIs under this built-in render
+          // as literal strings; do not import the built-in.
+          return;
+        }
+        this.usedNamespaces.add(name);
         return;
       }
     }
@@ -355,9 +370,12 @@ class SchemaPrinter {
     }
     for (const namespace of NAMESPACES) {
       if (value.startsWith(namespace.$iri)) {
-        return `${this.printPrefix(namespace)}.${
-          value.substring(namespace.$iri.length)
-        }`;
+        const name = this.printPrefix(namespace);
+        if (this.shadowedBuiltins.has(name)) {
+          // User namespace took this name — fall back to literal IRI string.
+          return `"${value}"`;
+        }
+        return `${name}.${value.substring(namespace.$iri.length)}`;
       }
     }
     return `"${value}"`;
@@ -365,7 +383,7 @@ class SchemaPrinter {
 
   private formatNamespaceAccess(prefix: string, localPart: string): string {
     // Use dot access for valid TS identifiers, bracket access otherwise
-    // (e.g. `m.totalRevenue` vs `m["facebook-id"]`).
+    // (e.g. `ex.totalRevenue` vs `ex["facebook-id"]`).
     if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(localPart)) {
       return `${prefix}.${localPart}`;
     }
