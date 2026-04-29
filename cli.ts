@@ -5,6 +5,7 @@ import { Argument, Command } from "npm:commander@^13.1.0";
 
 import { contextToSchema } from "./scripts/context_to_schema.ts";
 import { shexcToSchema, shexjToSchema } from "./scripts/shex_to_schema.ts";
+import { shaclToSchema } from "./scripts/shacl_to_schema.ts";
 import { schemaToScript } from "./scripts/schema_to_script.ts";
 
 const asciiArt = String.raw`
@@ -90,6 +91,28 @@ program.command("shexj-to-schema")
       const resolvedInput = await resolve(method, input);
       const schema = shexjToSchema(JSON.parse(resolvedInput));
       console.log(schemaToScript(schema));
+    } catch (error: unknown) {
+      console.error(styleText("red", `${(error as Error).message}`));
+    }
+  });
+
+program.command("shacl-to-schema")
+  .description(
+    "Convert a SHACL shapes graph from a file or URL to a LDkit schema",
+  )
+  .addArgument(
+    new Argument("<method>", "type of input").choices([
+      "url",
+      "file",
+      "arg",
+    ]),
+  )
+  .argument("<input>", "input SHACL Turtle - file, URL, or string")
+  .action(async (method, input) => {
+    try {
+      const resolvedInput = await resolve(method, input);
+      const { schemas, extraNamespaces } = shaclToSchema(resolvedInput);
+      console.log(schemaToScript(schemas, extraNamespaces));
     } catch (error: unknown) {
       console.error(styleText("red", `${(error as Error).message}`));
     }
