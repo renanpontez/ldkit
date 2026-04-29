@@ -1,4 +1,4 @@
-import { Parser, type Quad, Store, type Term } from "npm:n3@^1.26.0";
+import { Parser, type Quad, Store, type Term } from "npm:n3@^1";
 
 import {
   type ExtraNamespace,
