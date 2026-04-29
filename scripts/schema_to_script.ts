@@ -204,8 +204,10 @@ class SchemaPrinter {
   private printHeader(): string {
     const lines: string[] = [];
 
+    const usedPrefixes = new Set(this.extraNamespaces.map((ns) => ns.prefix))
+      .intersection(new Set(this.extraNamespaceTerms.keys()));
     const usedExtras = this.extraNamespaces.filter((ns) =>
-      this.extraNamespaceTerms.has(ns.prefix)
+      usedPrefixes.has(ns.prefix)
     );
 
     if (usedExtras.length > 0) {
@@ -228,11 +230,11 @@ class SchemaPrinter {
         .toSorted();
       lines.push(`export const ${ns.prefix} = createNamespace(`);
       lines.push(`  {`);
-      lines.push(`    iri: "${ns.iri}",`);
-      lines.push(`    prefix: "${ns.prefix}:",`);
+      lines.push(`    iri: ${JSON.stringify(ns.iri)},`);
+      lines.push(`    prefix: ${JSON.stringify(`${ns.prefix}:`)},`);
       lines.push(`    terms: [`);
       for (const term of terms) {
-        lines.push(`      "${term}",`);
+        lines.push(`      ${JSON.stringify(term)},`);
       }
       lines.push(`    ],`);
       lines.push(`  } as const,`);
@@ -240,7 +242,6 @@ class SchemaPrinter {
       lines.push("");
     }
 
-    if (lines.length === 0) return "";
     return lines.join("\n");
   }
 
@@ -359,7 +360,7 @@ class SchemaPrinter {
   }
 
   private formatNamespaceAccess(prefix: string, localPart: string): string {
-    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(localPart)) {
+    if (/^[A-Za-z_$]\w*$/.test(localPart)) {
       return `${prefix}.${localPart}`;
     }
     return `${prefix}["${localPart}"]`;
