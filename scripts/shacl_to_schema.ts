@@ -129,9 +129,18 @@ class ShaclConverter {
    */
   private parseWithPrefixes(turtle: string): void {
     // Parse the quads synchronously (n3's streaming callback form is
-    // asynchronous and would race the rest of process()).
+    // asynchronous and would race the rest of process()). Wrap the call so
+    // that malformed-Turtle errors surface with a clear "Failed to parse"
+    // prefix, separating syntax issues from converter logic issues.
     const parser = new Parser();
-    this.store = new Store(parser.parse(turtle));
+    let quads;
+    try {
+      quads = parser.parse(turtle);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to parse Turtle input: ${detail}`);
+    }
+    this.store = new Store(quads);
 
     // Extract `@prefix` declarations directly from the source. The Turtle
     // grammar guarantees the form `@prefix name: <iri> .` (case-insensitive
@@ -256,6 +265,19 @@ class ShaclConverter {
     const properties: SchemaSpec["properties"] = {};
 
     for (const q of propertyNodes) {
+      // Real-world SHACL files sometimes have malformed sh:property values
+      // (e.g. `sh:property "literal"` from a typo or buggy generator).
+      // Skip non-node values with a stderr warning rather than crashing the
+      // whole conversion — the rest of the shape's properties stay usable.
+      if (
+        q.object.termType !== "NamedNode" &&
+        q.object.termType !== "BlankNode"
+      ) {
+        console.error(
+          `[shacl-to-schema] warning: skipping non-node sh:property value on shape <${shapeIri}> (got ${q.object.termType})`,
+        );
+        continue;
+      }
       const { name, spec } = this.buildProperty(q.object, shapeIri);
       if (properties[name]) {
         // SHACL semantics: multiple property shapes targeting the same path
