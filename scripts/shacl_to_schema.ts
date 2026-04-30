@@ -176,9 +176,35 @@ class ShaclConverter {
     if (!targetClass && local.endsWith("Shape")) {
       local = local.substring(0, local.length - "Shape".length);
     }
-    return this.uniqueName(
-      `${this.capitalize(this.sanitizeIdentifier(local))}Schema`,
-    );
+    return this.uniqueName(this.composeSchemaName(baseIri, local));
+  }
+
+  // Schema names are always namespace-prefixed (when a @prefix declaration
+  // covers the IRI) so that classes sharing a local-part across vocabularies
+  // — e.g. m:Campaign, meta:Campaign, google:Campaign — produce
+  // self-documenting, deterministic names like MCampaignSchema,
+  // MetaCampaignSchema, GoogleCampaignSchema. IRIs without a declared prefix
+  // fall back to the bare local-part (preserves prior behavior for
+  // hand-written SHACL test fixtures that omit @prefix declarations).
+  private composeSchemaName(iri: string, local: string): string {
+    const prefix = this.findNamespacePrefix(iri);
+    const prefixPart = prefix
+      ? this.capitalize(this.sanitizeIdentifier(prefix))
+      : "";
+    const localPart = this.capitalize(this.sanitizeIdentifier(local));
+    return `${prefixPart}${localPart}Schema`;
+  }
+
+  private findNamespacePrefix(iri: string): string | null {
+    let bestPrefix: string | null = null;
+    let bestLength = 0;
+    for (const [prefix, ns] of Object.entries(this.prefixMap)) {
+      if (iri.startsWith(ns) && ns.length > bestLength) {
+        bestPrefix = prefix;
+        bestLength = ns.length;
+      }
+    }
+    return bestPrefix;
   }
 
   private uniqueName(name: string): string {
@@ -470,7 +496,7 @@ class ShaclConverter {
       return cached;
     }
     const name = this.uniqueName(
-      `${this.capitalize(this.sanitizeIdentifier(this.getSuffix(iri)))}Schema`,
+      this.composeSchemaName(iri, this.getSuffix(iri)),
     );
     this.classIriToSchemaName.set(iri, name);
     return name;

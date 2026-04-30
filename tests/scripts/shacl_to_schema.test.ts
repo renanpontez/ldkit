@@ -98,7 +98,7 @@ ex:ItemShape a sh:NodeShape ;
   // prefixes downstream.
   assertEquals(result.schemas, [
     {
-      name: "ItemSchema",
+      name: "ExItemSchema",
       type: ["http://example.org/vocab#Item"],
       properties: {
         label: { id: "http://example.org/vocab#label" },
@@ -158,7 +158,7 @@ ex:PersonShape a sh:NodeShape ;
   // The literal sh:property value is dropped (with a stderr warning); the
   // valid blank-node property still converts.
   const schema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       name: { id: "http://example.org/name" },
@@ -216,7 +216,7 @@ ex:PersonShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       name: { id: "http://example.org/name" },
@@ -238,7 +238,7 @@ ex:ThingShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "ThingSchema",
+    name: "ExThingSchema",
     type: ["http://example.org/Thing"],
     properties: {
       age: {
@@ -275,7 +275,7 @@ ex:PersonShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       nickname: {
@@ -297,7 +297,7 @@ ex:PersonShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       tag: {
@@ -323,7 +323,7 @@ ex:PersonShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       homepage: {
@@ -344,7 +344,7 @@ ex:PersonShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       bio: {
@@ -374,18 +374,18 @@ ex:AddressShape a sh:NodeShape ;
 `;
 
   const personSchema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       address: {
         id: "http://example.org/address",
-        schemaRef: "AddressSchema",
+        schemaRef: "ExAddressSchema",
       },
     },
   };
 
   const addressSchema: SchemaSpec = {
-    name: "AddressSchema",
+    name: "ExAddressSchema",
     type: ["http://example.org/Address"],
     properties: {
       street: { id: "http://example.org/street" },
@@ -402,7 +402,7 @@ ex:Memory a rdfs:Class, sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "MemorySchema",
+    name: "ExMemorySchema",
     type: ["http://example.org/Memory"],
     properties: {
       label: { id: "http://example.org/label" },
@@ -424,7 +424,7 @@ ex:CompanyShape a sh:NodeShape ;
 `;
 
   const personSchema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       name: { id: "http://example.org/name" },
@@ -432,7 +432,7 @@ ex:CompanyShape a sh:NodeShape ;
   };
 
   const companySchema: SchemaSpec = {
-    name: "CompanySchema",
+    name: "ExCompanySchema",
     type: ["http://example.org/Company"],
     properties: {
       name: { id: "http://example.org/name" },
@@ -482,7 +482,7 @@ ex:CategoryShape a sh:NodeShape ;
 `;
 
   const itemSchema: SchemaSpec = {
-    name: "ItemSchema",
+    name: "ExItemSchema",
     type: ["http://example.org/Item"],
     properties: {
       label: {
@@ -501,7 +501,7 @@ ex:CategoryShape a sh:NodeShape ;
       },
       category: {
         id: "http://example.org/category",
-        schemaRef: "CategorySchema",
+        schemaRef: "ExCategorySchema",
         optional: true,
       },
       tags: {
@@ -513,7 +513,7 @@ ex:CategoryShape a sh:NodeShape ;
   };
 
   const categorySchema: SchemaSpec = {
-    name: "CategorySchema",
+    name: "ExCategorySchema",
     type: ["http://example.org/Category"],
     properties: {
       label: { id: "http://www.w3.org/2000/01/rdf-schema#label" },
@@ -540,7 +540,7 @@ ex:ProductShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "ProductSchema",
+    name: "ExProductSchema",
     type: ["http://example.org/Product"],
     properties: {
       price: {
@@ -578,7 +578,7 @@ ex:VideoShape a sh:NodeShape ;
 `;
 
   const adSchema: SchemaSpec = {
-    name: "AdSchema",
+    name: "ExAdSchema",
     type: ["http://example.org/Ad"],
     properties: {
       creative: {
@@ -590,13 +590,13 @@ ex:VideoShape a sh:NodeShape ;
   };
 
   const imageSchema: SchemaSpec = {
-    name: "ImageSchema",
+    name: "ExImageSchema",
     type: ["http://example.org/Image"],
     properties: { url: { id: "http://example.org/url" } },
   };
 
   const videoSchema: SchemaSpec = {
-    name: "VideoSchema",
+    name: "ExVideoSchema",
     type: ["http://example.org/Video"],
     properties: { url: { id: "http://example.org/url" } },
   };
@@ -620,7 +620,7 @@ ex:LinkShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "LinkSchema",
+    name: "ExLinkSchema",
     type: ["http://example.org/Link"],
     properties: {
       href: {
@@ -648,7 +648,7 @@ ex:PersonShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       age: {
@@ -679,7 +679,7 @@ ex:PersonShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       age: {
@@ -705,7 +705,7 @@ ex:TaskShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "TaskSchema",
+    name: "ExTaskSchema",
     type: ["http://example.org/Task"],
     properties: {
       status: { id: "http://example.org/status" },
@@ -728,7 +728,7 @@ ex:TaskShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "TaskSchema",
+    name: "ExTaskSchema",
     type: ["http://example.org/Task"],
     properties: {
       state: {
@@ -756,7 +756,7 @@ ex:PersonShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       friend: {
@@ -781,7 +781,7 @@ ex:FacebookCarouselCard-InputShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "FacebookCarouselCard_InputSchema",
+    name: "ExFacebookCarouselCard_InputSchema",
     type: ["http://example.org/FacebookCarouselCard-Input"],
     properties: {
       asset: { id: "http://example.org/asset" },
@@ -810,19 +810,19 @@ ex:CampaignShape a sh:NodeShape ;
 `;
 
   const summarySchema: SchemaSpec = {
-    name: "SummarySchema",
+    name: "ExSummarySchema",
     type: ["http://example.org/Summary"],
     properties: {
       campaign: {
         id: "http://example.org/campaign",
-        schemaRef: "CampaignSchema",
+        schemaRef: "ExCampaignSchema",
         optional: true,
       },
     },
   };
 
   const campaignSchema: SchemaSpec = {
-    name: "CampaignSchema",
+    name: "ExCampaignSchema",
     type: ["http://example.org/Campaign"],
     properties: {
       label: { id: "http://example.org/label" },
@@ -851,7 +851,7 @@ ex:ReportShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "ReportSchema",
+    name: "ExReportSchema",
     type: ["http://example.org/Report"],
     properties: {
       value: {
@@ -875,7 +875,7 @@ ex:PersonShape a sh:NodeShape ;
 `;
 
   const schema: SchemaSpec = {
-    name: "PersonSchema",
+    name: "ExPersonSchema",
     type: ["http://example.org/Person"],
     properties: {
       parent: {
