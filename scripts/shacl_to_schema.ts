@@ -74,6 +74,7 @@ type ReducedOr =
 export type ShaclConversionResult = {
   schemas: SchemaSpec[];
   extraNamespaces: ExtraNamespace[];
+  schemaSourcePrefixes: Map<string, string>;
 };
 
 export type ShaclConversionOptions = {
@@ -111,14 +112,19 @@ class ShaclConverter {
       this.shapeIriToName.set(shapeIri, name);
     }
 
+    const schemaSourcePrefixes = new Map<string, string>();
     for (const shapeIri of shapeIris) {
       const schema = this.buildSchema(shapeIri);
       this.schemas.push(schema);
+      const baseIri = schema.type[0] ?? shapeIri;
+      const prefix = this.findNamespacePrefix(baseIri);
+      if (prefix) schemaSourcePrefixes.set(schema.name, prefix);
     }
 
     return {
       schemas: this.schemas,
       extraNamespaces: this.deriveExtraNamespaces(),
+      schemaSourcePrefixes,
     };
   }
 
@@ -321,8 +327,7 @@ class ShaclConverter {
 
     let forceOptional = false;
     const refTarget = direct.refNode ?? direct.refClass;
-    const isSelfRef =
-      refTarget !== undefined &&
+    const isSelfRef = refTarget !== undefined &&
       enclosingShapeIri !== undefined &&
       refTarget === enclosingShapeIri;
 
@@ -407,7 +412,7 @@ class ShaclConverter {
       } else if (first?.termType === "Literal") {
         const dt =
           (first as { datatype?: { value: string } }).datatype?.value ??
-          XSD_STRING;
+            XSD_STRING;
         c.inFirstType = dt;
       }
     }
@@ -432,7 +437,7 @@ class ShaclConverter {
     const orListTerm = this.getObjectTerm(node, SH_OR);
     if (!orListTerm) return [];
     return this.walkList(orListTerm).map((branch) =>
-      this.collectConstraints(branch),
+      this.collectConstraints(branch)
     );
   }
 

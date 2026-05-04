@@ -54,11 +54,18 @@ export type ExtraNamespace = {
   prefix: string;
 };
 
+export type PrinterOptions = {
+  schemaLocations?: Map<string, string>;
+  currentFile?: string;
+  extraNamespaceFiles?: Map<string, string>;
+};
+
 export function schemaToScript(
   schemas: SchemaSpec[],
   extraNamespaces: ExtraNamespace[] = [],
+  options: PrinterOptions = {},
 ): string {
-  const printer = new SchemaPrinter(extraNamespaces);
+  const printer = new SchemaPrinter(extraNamespaces, options);
   return printer.print(schemas);
 }
 
@@ -69,14 +76,24 @@ class SchemaPrinter {
   private extraNamespaces: ExtraNamespace[];
   private extraNamespaceTerms = new Map<string, Set<string>>();
   private readonly shadowedBuiltins: Set<string>;
+  private readonly schemaLocations: Map<string, string>;
+  private readonly currentFile: string | undefined;
+  private readonly extraNamespaceFiles: Map<string, string>;
+  private readonly crossFileImports = new Map<string, Set<string>>();
 
-  constructor(extraNamespaces: ExtraNamespace[] = []) {
+  constructor(
+    extraNamespaces: ExtraNamespace[] = [],
+    options: PrinterOptions = {},
+  ) {
     this.extraNamespaces = [...extraNamespaces].sort(
       (a, b) => b.iri.length - a.iri.length,
     );
     this.shadowedBuiltins = new Set(
       this.extraNamespaces.map((ns) => ns.prefix),
     );
+    this.schemaLocations = options.schemaLocations ?? new Map();
+    this.currentFile = options.currentFile;
+    this.extraNamespaceFiles = options.extraNamespaceFiles ?? new Map();
   }
 
   public print(schemas: SchemaSpec[]): string {
@@ -101,11 +118,14 @@ class SchemaPrinter {
   private orderSchemasByDependencies(schemas: SchemaSpec[]): SchemaSpec[] {
     const orderedSchemas: SchemaSpec[] = [];
     const processedSchemas = new Set<string>();
+    const localNames = new Set(schemas.map((s) => s.name));
 
     const dependencies = schemas.map((schema) => {
       return {
         schemaName: schema.name,
-        dependencies: this.getSchemaDependencies(schema),
+        dependencies: this.getSchemaDependencies(schema).filter((dep) =>
+          localNames.has(dep)
+        ),
       };
     });
 
@@ -201,6 +221,18 @@ class SchemaPrinter {
     }
   }
 
+  private trackCrossFileRef(schemaRef: string): void {
+    if (!this.currentFile) return;
+    const refFile = this.schemaLocations.get(schemaRef);
+    if (!refFile || refFile === this.currentFile) return;
+    let names = this.crossFileImports.get(refFile);
+    if (!names) {
+      names = new Set();
+      this.crossFileImports.set(refFile, names);
+    }
+    names.add(schemaRef);
+  }
+
   private printHeader(): string {
     const lines: string[] = [];
 
@@ -210,7 +242,23 @@ class SchemaPrinter {
       usedPrefixes.has(ns.prefix)
     );
 
-    if (usedExtras.length > 0) {
+    const declaredExtras: ExtraNamespace[] = [];
+    const importedByFile = new Map<string, Set<string>>();
+    for (const ns of usedExtras) {
+      const home = this.extraNamespaceFiles.get(ns.prefix);
+      if (!home || !this.currentFile || home === this.currentFile) {
+        declaredExtras.push(ns);
+        continue;
+      }
+      let names = importedByFile.get(home);
+      if (!names) {
+        names = new Set();
+        importedByFile.set(home, names);
+      }
+      names.add(ns.prefix);
+    }
+
+    if (declaredExtras.length > 0) {
       lines.push(`import { createNamespace } from "ldkit";`);
     }
 
@@ -221,11 +269,25 @@ class SchemaPrinter {
       lines.push(`import { ${namespacesString} } from "ldkit/namespaces";`);
     }
 
+    const crossFileEntries = [...this.crossFileImports.entries()]
+      .toSorted(([a], [b]) => a.localeCompare(b));
+    for (const [file, names] of crossFileEntries) {
+      const sortedNames = [...names].toSorted().join(", ");
+      lines.push(`import { ${sortedNames} } from "./${file}";`);
+    }
+
+    const importedExtraEntries = [...importedByFile.entries()]
+      .toSorted(([a], [b]) => a.localeCompare(b));
+    for (const [file, prefixes] of importedExtraEntries) {
+      const sortedPrefixes = [...prefixes].toSorted().join(", ");
+      lines.push(`import { ${sortedPrefixes} } from "./${file}";`);
+    }
+
     if (lines.length > 0) {
       lines.push("");
     }
 
-    for (const ns of usedExtras) {
+    for (const ns of declaredExtras) {
       const terms = Array.from(this.extraNamespaceTerms.get(ns.prefix)!)
         .toSorted();
       lines.push(`export const ${ns.prefix} = createNamespace(`);
@@ -302,6 +364,7 @@ class SchemaPrinter {
       const subSchema = this.printSubSchema(prop.schema);
       builder.push(this.indent(subSchema));
     } else if (prop.schemaRef) {
+      this.trackCrossFileRef(prop.schemaRef);
       builder.push(this.indent(`"@schema": ${prop.schemaRef},`));
     }
 
