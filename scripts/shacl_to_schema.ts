@@ -93,7 +93,6 @@ class ShaclConverter {
   private store!: Store;
   private schemas: SchemaSpec[] = [];
   private shapeIriToName = new Map<string, string>();
-  private classIriToSchemaName = new Map<string, string>();
   private usedNames = new Set<string>();
   private prefixMap: Record<string, string> = {};
   private prefixAliases: Record<string, string>;
@@ -327,16 +326,11 @@ class ShaclConverter {
 
     let forceOptional = false;
     const refTarget = direct.refNode ?? direct.refClass;
-    const isSelfRef = refTarget !== undefined &&
-      enclosingShapeIri !== undefined &&
-      refTarget === enclosingShapeIri;
 
     if (direct.uniqueLang || direct.datatype === RDF_LANG_STRING) {
       spec.multilang = true;
-    } else if (refTarget && !isSelfRef) {
-      spec.schemaRef = this.resolveSchemaRef(refTarget);
-    } else if (isSelfRef) {
-      // Circular schema refs would crash the printer; fall back to IRI.
+    } else if (refTarget) {
+      // Default to IRI for sh:node / sh:class references
       spec.type = "@id";
     } else if (direct.datatype && direct.datatype !== XSD_STRING) {
       spec.type = direct.datatype;
@@ -412,7 +406,7 @@ class ShaclConverter {
       } else if (first?.termType === "Literal") {
         const dt =
           (first as { datatype?: { value: string } }).datatype?.value ??
-            XSD_STRING;
+          XSD_STRING;
         c.inFirstType = dt;
       }
     }
@@ -437,7 +431,7 @@ class ShaclConverter {
     const orListTerm = this.getObjectTerm(node, SH_OR);
     if (!orListTerm) return [];
     return this.walkList(orListTerm).map((branch) =>
-      this.collectConstraints(branch)
+      this.collectConstraints(branch),
     );
   }
 
@@ -500,22 +494,6 @@ class ShaclConverter {
       current = rest;
     }
     return items;
-  }
-
-  private resolveSchemaRef(iri: string): string {
-    const existing = this.shapeIriToName.get(iri);
-    if (existing) {
-      return existing;
-    }
-    const cached = this.classIriToSchemaName.get(iri);
-    if (cached) {
-      return cached;
-    }
-    const name = this.uniqueName(
-      this.composeSchemaName(iri, this.getSuffix(iri)),
-    );
-    this.classIriToSchemaName.set(iri, name);
-    return name;
   }
 
   private sanitizeIdentifier(value: string): string {

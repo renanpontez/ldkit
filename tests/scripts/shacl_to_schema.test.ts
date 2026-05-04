@@ -394,7 +394,7 @@ ex:AddressShape a sh:NodeShape ;
     properties: {
       address: {
         id: "http://example.org/address",
-        schemaRef: "ExAddressSchema",
+        type: "@id",
       },
     },
   };
@@ -521,7 +521,7 @@ ex:CategoryShape a sh:NodeShape ;
         },
         category: {
           id: "http://example.org/category",
-          schemaRef: "ExCategorySchema",
+          type: "@id",
           optional: true,
         },
         tags: {
@@ -837,14 +837,11 @@ ex:FacebookCarouselCard-InputShape a sh:NodeShape ;
 );
 
 Deno.test(
-  "Scripts / SHACL to Schema / Merging sh:nodeKind sh:IRI with sh:node keeps only schemaRef",
+  "Scripts / SHACL to Schema / Merging sh:nodeKind sh:IRI with sh:node yields type: @id",
   () => {
     // Some SHACL files declare multiple sh:property shapes on the same path,
-    // one with `sh:nodeKind sh:IRI` and another with `sh:node X`. LDkit's
-    // encoder/decoder/query builder all ignore `@type` when `@schema` is
-    // present (see library/{decoder,encoder,schema/interface}.ts), so
-    // emitting both is dead code. The merge must drop `type` whenever either
-    // branch sets `schemaRef`.
+    // one with `sh:nodeKind sh:IRI` and another with `sh:node X`. Both
+    // produce `type: "@id"` by default; the merge must keep `type: "@id"`.
     const input = `${PREFIXES}
 ex:SummaryShape a sh:NodeShape ;
   sh:targetClass ex:Summary ;
@@ -862,7 +859,7 @@ ex:CampaignShape a sh:NodeShape ;
       properties: {
         campaign: {
           id: "http://example.org/campaign",
-          schemaRef: "ExCampaignSchema",
+          type: "@id",
           optional: true,
         },
       },
@@ -1023,5 +1020,53 @@ ex:GadgetShape a sh:NodeShape ;
 
     const names = result.schemas.map((s) => s.name).sort();
     assertEquals(names, ["ExGadgetSchema", "ExampleWidgetSchema"]);
+  },
+);
+
+Deno.test(
+  "Scripts / SHACL to Schema / sh:node never emits schemaRef by default; emits type: @id",
+  () => {
+    const input = `${PREFIXES}
+ex:OrderShape a sh:NodeShape ;
+  sh:targetClass ex:Order ;
+  sh:property [
+    sh:path ex:customer ;
+    sh:node ex:CustomerShape ;
+    sh:minCount 1 ;
+    sh:maxCount 1
+  ] ;
+  sh:property [
+    sh:path ex:item ;
+    sh:class ex:Item ;
+    sh:maxCount 1
+  ] .
+
+ex:CustomerShape a sh:NodeShape ;
+  sh:targetClass ex:Customer ;
+  sh:property [ sh:path ex:name ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] .
+`;
+
+    const result = shaclToSchema(input);
+    const order = result.schemas.find((s) => s.name === "ExOrderSchema")!;
+
+    assertEquals(order.properties.customer, {
+      id: "http://example.org/customer",
+      type: "@id",
+    });
+    assertEquals(order.properties.item, {
+      id: "http://example.org/item",
+      type: "@id",
+      optional: true,
+    });
+
+    for (const schema of result.schemas) {
+      for (const [key, prop] of Object.entries(schema.properties)) {
+        if (prop.schemaRef !== undefined) {
+          throw new Error(
+            `Expected no schemaRef in default output, but ${schema.name}.${key} has schemaRef=${prop.schemaRef}`,
+          );
+        }
+      }
+    }
   },
 );
