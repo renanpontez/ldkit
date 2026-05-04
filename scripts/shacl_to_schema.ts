@@ -77,11 +77,6 @@ export type ShaclConversionResult = {
 };
 
 export type ShaclConversionOptions = {
-  // Map from SHACL prefix (e.g. "m") to the PascalCase identifier used in
-  // generated schema names (e.g. "Marketer"). When unset for a prefix, the
-  // converter falls back to capitalizing the prefix itself. Allows consumers
-  // to disambiguate short or domain-specific prefixes without forking the
-  // converter.
   prefixAliases?: Record<string, string>;
 };
 
@@ -253,12 +248,8 @@ class ShaclConverter {
     if (targetClasses.length > 0) {
       return targetClasses;
     }
-    const isRdfsClass = this.store.getQuads(
-      shapeIri,
-      RDF_TYPE,
-      RDFS_CLASS,
-      null,
-    ).length > 0;
+    const isRdfsClass =
+      this.store.getQuads(shapeIri, RDF_TYPE, RDFS_CLASS, null).length > 0;
     return isRdfsClass ? [shapeIri] : [];
   }
 
@@ -330,8 +321,10 @@ class ShaclConverter {
 
     let forceOptional = false;
     const refTarget = direct.refNode ?? direct.refClass;
-    const isSelfRef = refTarget !== undefined &&
-      enclosingShapeIri !== undefined && refTarget === enclosingShapeIri;
+    const isSelfRef =
+      refTarget !== undefined &&
+      enclosingShapeIri !== undefined &&
+      refTarget === enclosingShapeIri;
 
     if (direct.uniqueLang || direct.datatype === RDF_LANG_STRING) {
       spec.multilang = true;
@@ -414,7 +407,7 @@ class ShaclConverter {
       } else if (first?.termType === "Literal") {
         const dt =
           (first as { datatype?: { value: string } }).datatype?.value ??
-            XSD_STRING;
+          XSD_STRING;
         c.inFirstType = dt;
       }
     }
@@ -439,7 +432,7 @@ class ShaclConverter {
     const orListTerm = this.getObjectTerm(node, SH_OR);
     if (!orListTerm) return [];
     return this.walkList(orListTerm).map((branch) =>
-      this.collectConstraints(branch)
+      this.collectConstraints(branch),
     );
   }
 
@@ -547,10 +540,7 @@ class ShaclConverter {
     return undefined;
   }
 
-  private getObjectIris(
-    subject: Term | string,
-    predicate: string,
-  ): string[] {
+  private getObjectIris(subject: Term | string, predicate: string): string[] {
     const quads = this.store.getQuads(subject, predicate, null, null);
     const result: string[] = [];
     for (const q of quads) {
