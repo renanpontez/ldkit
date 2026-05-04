@@ -58,6 +58,7 @@ export type PrinterOptions = {
   schemaLocations?: Map<string, string>;
   currentFile?: string;
   extraNamespaceFiles?: Map<string, string>;
+  extraNamespaceTermsOverride?: Map<string, Set<string>>;
 };
 
 export function schemaToScript(
@@ -79,6 +80,9 @@ class SchemaPrinter {
   private readonly schemaLocations: Map<string, string>;
   private readonly currentFile: string | undefined;
   private readonly extraNamespaceFiles: Map<string, string>;
+  private readonly extraNamespaceTermsOverride:
+    | Map<string, Set<string>>
+    | undefined;
   private readonly crossFileImports = new Map<string, Set<string>>();
 
   constructor(
@@ -94,6 +98,7 @@ class SchemaPrinter {
     this.schemaLocations = options.schemaLocations ?? new Map();
     this.currentFile = options.currentFile;
     this.extraNamespaceFiles = options.extraNamespaceFiles ?? new Map();
+    this.extraNamespaceTermsOverride = options.extraNamespaceTermsOverride;
   }
 
   public print(schemas: SchemaSpec[]): string {
@@ -288,8 +293,9 @@ class SchemaPrinter {
     }
 
     for (const ns of declaredExtras) {
-      const terms = Array.from(this.extraNamespaceTerms.get(ns.prefix)!)
-        .toSorted();
+      const termSet = this.extraNamespaceTermsOverride?.get(ns.prefix) ??
+        this.extraNamespaceTerms.get(ns.prefix)!;
+      const terms = Array.from(termSet).toSorted();
       lines.push(`export const ${ns.prefix} = createNamespace(`);
       lines.push(`  {`);
       lines.push(`    iri: ${JSON.stringify(ns.iri)},`);

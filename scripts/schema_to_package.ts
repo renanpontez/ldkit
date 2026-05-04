@@ -47,6 +47,11 @@ export function schemaToPackage(
     if (groups.has(home)) extraNamespaceFiles.set(ns.prefix, home);
   }
 
+  const extraNamespaceTermsOverride = collectGlobalNamespaceTerms(
+    extraNamespaces,
+    schemas,
+  );
+
   const files = new Map<string, string>();
   for (
     const [file, fileSchemas] of [...groups.entries()].toSorted(([a], [b]) =>
@@ -58,6 +63,7 @@ export function schemaToPackage(
       schemaLocations,
       currentFile: file,
       extraNamespaceFiles,
+      extraNamespaceTermsOverride,
     });
     files.set(file, contents);
   }
@@ -90,6 +96,30 @@ function collectUsedIris(schemas: SchemaSpec[]): Set<string> {
     }
   }
   return used;
+}
+
+function collectGlobalNamespaceTerms(
+  extras: ExtraNamespace[],
+  schemas: SchemaSpec[],
+): Map<string, Set<string>> {
+  const sortedExtras = [...extras].sort((a, b) => b.iri.length - a.iri.length);
+  const result = new Map<string, Set<string>>();
+  const allIris = collectUsedIris(schemas);
+  for (const iri of allIris) {
+    for (const ns of sortedExtras) {
+      if (iri.startsWith(ns.iri)) {
+        const term = iri.substring(ns.iri.length);
+        let bucket = result.get(ns.prefix);
+        if (!bucket) {
+          bucket = new Set();
+          result.set(ns.prefix, bucket);
+        }
+        bucket.add(term);
+        break;
+      }
+    }
+  }
+  return result;
 }
 
 function buildIndex(files: Map<string, string>): string {
