@@ -108,10 +108,19 @@ program.command("shacl-to-schema")
     ]),
   )
   .argument("<input>", "input SHACL Turtle - file, URL, or string")
-  .action(async (method, input) => {
+  .option(
+    "--prefix-alias <mapping>",
+    "rename a SHACL prefix in generated schema names (format: prefix=Alias). Repeatable.",
+    (value: string, previous: string[]) => [...previous, value],
+    [] as string[],
+  )
+  .action(async (method, input, opts: { prefixAlias?: string[] }) => {
     try {
       const resolvedInput = await resolve(method, input);
-      const { schemas, extraNamespaces } = shaclToSchema(resolvedInput);
+      const prefixAliases = parsePrefixAliases(opts.prefixAlias);
+      const { schemas, extraNamespaces } = shaclToSchema(resolvedInput, {
+        prefixAliases,
+      });
       console.log(schemaToScript(schemas, extraNamespaces));
     } catch (error: unknown) {
       console.error(styleText("red", `${(error as Error).message}`));
@@ -124,6 +133,25 @@ if (argv.length <= 2) {
   program.help(); // Automatically exits after printing help
 } else {
   program.parse(argv);
+}
+
+function parsePrefixAliases(
+  pairs: string[] | undefined,
+): Record<string, string> {
+  if (!pairs || pairs.length === 0) return {};
+  const result: Record<string, string> = {};
+  for (const pair of pairs) {
+    const eq = pair.indexOf("=");
+    if (eq <= 0 || eq === pair.length - 1) {
+      throw new Error(
+        `Invalid --prefix-alias value "${pair}" (expected format: prefix=Alias)`,
+      );
+    }
+    const prefix = pair.substring(0, eq);
+    const alias = pair.substring(eq + 1);
+    result[prefix] = alias;
+  }
+  return result;
 }
 
 async function resolve(method: string, input: string): Promise<string> {

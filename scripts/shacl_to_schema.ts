@@ -76,8 +76,20 @@ export type ShaclConversionResult = {
   extraNamespaces: ExtraNamespace[];
 };
 
-export function shaclToSchema(turtle: string): ShaclConversionResult {
-  const converter = new ShaclConverter();
+export type ShaclConversionOptions = {
+  // Map from SHACL prefix (e.g. "m") to the PascalCase identifier used in
+  // generated schema names (e.g. "Marketer"). When unset for a prefix, the
+  // converter falls back to capitalizing the prefix itself. Allows consumers
+  // to disambiguate short or domain-specific prefixes without forking the
+  // converter.
+  prefixAliases?: Record<string, string>;
+};
+
+export function shaclToSchema(
+  turtle: string,
+  options: ShaclConversionOptions = {},
+): ShaclConversionResult {
+  const converter = new ShaclConverter(options);
   return converter.process(turtle);
 }
 
@@ -88,6 +100,11 @@ class ShaclConverter {
   private classIriToSchemaName = new Map<string, string>();
   private usedNames = new Set<string>();
   private prefixMap: Record<string, string> = {};
+  private prefixAliases: Record<string, string>;
+
+  constructor(options: ShaclConversionOptions = {}) {
+    this.prefixAliases = options.prefixAliases ?? {};
+  }
 
   public process(turtle: string): ShaclConversionResult {
     this.parseWithPrefixes(turtle);
@@ -189,7 +206,8 @@ class ShaclConverter {
   private composeSchemaName(iri: string, local: string): string {
     const prefix = this.findNamespacePrefix(iri);
     const prefixPart = prefix
-      ? this.capitalize(this.sanitizeIdentifier(prefix))
+      ? (this.prefixAliases[prefix] ??
+        this.capitalize(this.sanitizeIdentifier(prefix)))
       : "";
     const localPart = this.capitalize(this.sanitizeIdentifier(local));
     return `${prefixPart}${localPart}Schema`;

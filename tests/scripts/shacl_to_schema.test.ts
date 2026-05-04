@@ -890,3 +890,75 @@ ex:PersonShape a sh:NodeShape ;
 
   testSchema(input, schema);
 });
+
+Deno.test("Scripts / SHACL to Schema / prefixAliases option renames matching prefix in generated names", () => {
+  const input = `
+@prefix m: <https://marketer.com/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+m:CampaignShape a sh:NodeShape ;
+  sh:targetClass m:Campaign ;
+  sh:property [
+    sh:path m:name ;
+    sh:datatype xsd:string ;
+    sh:minCount 1 ;
+    sh:maxCount 1
+  ] .
+`;
+
+  const result = shaclToSchema(input, { prefixAliases: { m: "Marketer" } });
+
+  assertEquals(result.schemas, [
+    {
+      name: "MarketerCampaignSchema",
+      type: ["https://marketer.com/vocab#Campaign"],
+      properties: {
+        name: { id: "https://marketer.com/vocab#name" },
+      },
+    },
+  ]);
+});
+
+Deno.test("Scripts / SHACL to Schema / prefixAliases empty/unset preserves capitalize-prefix default", () => {
+  const input = `
+@prefix m: <https://marketer.com/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+m:CampaignShape a sh:NodeShape ;
+  sh:targetClass m:Campaign ;
+  sh:property [
+    sh:path m:name ;
+    sh:datatype xsd:string ;
+    sh:minCount 1 ;
+    sh:maxCount 1
+  ] .
+`;
+
+  const result = shaclToSchema(input);
+
+  assertEquals(result.schemas[0].name, "MCampaignSchema");
+});
+
+Deno.test("Scripts / SHACL to Schema / prefixAliases only applies to matching prefix; others unchanged", () => {
+  const input = `
+@prefix m: <https://marketer.com/vocab#> .
+@prefix ex: <http://example.org/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+m:WidgetShape a sh:NodeShape ;
+  sh:targetClass m:Widget ;
+  sh:property [ sh:path m:name ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] .
+
+ex:GadgetShape a sh:NodeShape ;
+  sh:targetClass ex:Gadget ;
+  sh:property [ sh:path ex:label ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] .
+`;
+
+  const result = shaclToSchema(input, { prefixAliases: { m: "Marketer" } });
+
+  const names = result.schemas.map((s) => s.name).sort();
+  assertEquals(names, ["ExGadgetSchema", "MarketerWidgetSchema"]);
+});
