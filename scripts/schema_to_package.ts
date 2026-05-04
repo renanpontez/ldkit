@@ -14,6 +14,7 @@ export type SchemaPackage = {
 };
 
 const FALLBACK_FILE = "_unknown";
+const NAMESPACES_FILE = "namespaces";
 
 export function schemaToPackage(
   schemas: SchemaSpec[],
@@ -41,12 +42,6 @@ export function schemaToPackage(
     bucket.push(schema);
   }
 
-  const extraNamespaceFiles = new Map<string, string>();
-  for (const ns of extraNamespaces) {
-    const home = fileForPrefix(ns.prefix);
-    if (groups.has(home)) extraNamespaceFiles.set(ns.prefix, home);
-  }
-
   const extraNamespaceTermsOverride = collectGlobalNamespaceTerms(
     extraNamespaces,
     schemas,
@@ -62,14 +57,44 @@ export function schemaToPackage(
     const contents = schemaToScript(fileSchemas, scopedExtras, {
       schemaLocations,
       currentFile: file,
-      extraNamespaceFiles,
-      extraNamespaceTermsOverride,
+      extraNamespacesImportFrom: NAMESPACES_FILE,
     });
     files.set(file, contents);
   }
 
+  if (extraNamespaces.length > 0) {
+    files.set(
+      NAMESPACES_FILE,
+      buildNamespacesFile(extraNamespaces, extraNamespaceTermsOverride),
+    );
+  }
   files.set("index", buildIndex(files));
   return { files };
+}
+
+function buildNamespacesFile(
+  extras: ExtraNamespace[],
+  termsByPrefix: Map<string, Set<string>>,
+): string {
+  const lines: string[] = [`import { createNamespace } from "ldkit";`, ""];
+  const sorted = [...extras].sort((a, b) => a.prefix.localeCompare(b.prefix));
+  for (const ns of sorted) {
+    const terms = [...(termsByPrefix.get(ns.prefix) ?? new Set<string>())]
+      .toSorted();
+    lines.push(`export const ${ns.prefix} = createNamespace(`);
+    lines.push(`  {`);
+    lines.push(`    iri: ${JSON.stringify(ns.iri)},`);
+    lines.push(`    prefix: ${JSON.stringify(`${ns.prefix}:`)},`);
+    lines.push(`    terms: [`);
+    for (const term of terms) {
+      lines.push(`      ${JSON.stringify(term)},`);
+    }
+    lines.push(`    ],`);
+    lines.push(`  } as const,`);
+    lines.push(`);`);
+    lines.push("");
+  }
+  return lines.join("\n");
 }
 
 function filterExtras(

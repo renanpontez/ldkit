@@ -59,6 +59,7 @@ export type PrinterOptions = {
   currentFile?: string;
   extraNamespaceFiles?: Map<string, string>;
   extraNamespaceTermsOverride?: Map<string, Set<string>>;
+  extraNamespacesImportFrom?: string;
 };
 
 export function schemaToScript(
@@ -83,6 +84,7 @@ class SchemaPrinter {
   private readonly extraNamespaceTermsOverride:
     | Map<string, Set<string>>
     | undefined;
+  private readonly extraNamespacesImportFrom: string | undefined;
   private readonly crossFileImports = new Map<string, Set<string>>();
 
   constructor(
@@ -99,6 +101,7 @@ class SchemaPrinter {
     this.currentFile = options.currentFile;
     this.extraNamespaceFiles = options.extraNamespaceFiles ?? new Map();
     this.extraNamespaceTermsOverride = options.extraNamespaceTermsOverride;
+    this.extraNamespacesImportFrom = options.extraNamespacesImportFrom;
   }
 
   public print(schemas: SchemaSpec[]): string {
@@ -249,18 +252,27 @@ class SchemaPrinter {
 
     const declaredExtras: ExtraNamespace[] = [];
     const importedByFile = new Map<string, Set<string>>();
-    for (const ns of usedExtras) {
-      const home = this.extraNamespaceFiles.get(ns.prefix);
-      if (!home || !this.currentFile || home === this.currentFile) {
-        declaredExtras.push(ns);
-        continue;
+    if (this.extraNamespacesImportFrom !== undefined) {
+      if (usedExtras.length > 0) {
+        importedByFile.set(
+          this.extraNamespacesImportFrom,
+          new Set(usedExtras.map((ns) => ns.prefix)),
+        );
       }
-      let names = importedByFile.get(home);
-      if (!names) {
-        names = new Set();
-        importedByFile.set(home, names);
+    } else {
+      for (const ns of usedExtras) {
+        const home = this.extraNamespaceFiles.get(ns.prefix);
+        if (!home || !this.currentFile || home === this.currentFile) {
+          declaredExtras.push(ns);
+          continue;
+        }
+        let names = importedByFile.get(home);
+        if (!names) {
+          names = new Set();
+          importedByFile.set(home, names);
+        }
+        names.add(ns.prefix);
       }
-      names.add(ns.prefix);
     }
 
     if (declaredExtras.length > 0) {

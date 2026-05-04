@@ -29,11 +29,12 @@ gad:GadgetShape a sh:NodeShape ;
 
   assertEquals(
     [...files.keys()].toSorted(),
-    ["gad", "index", "widget"],
+    ["gad", "index", "namespaces", "widget"],
   );
 
   const widget = files.get("widget")!;
   const gad = files.get("gad")!;
+  const namespaces = files.get("namespaces")!;
   const index = files.get("index")!;
 
   if (!widget.includes("WidgetWidgetSchema")) {
@@ -42,14 +43,27 @@ gad:GadgetShape a sh:NodeShape ;
   if (!gad.includes("GadGadgetSchema")) {
     throw new Error("gad.ts missing GadGadgetSchema:\n" + gad);
   }
+  if (!widget.includes(`from "./namespaces"`)) {
+    throw new Error(
+      "widget.ts must import its namespace const from ./namespaces:\n" +
+        widget,
+    );
+  }
   if (widget.includes('from "./gad"')) {
     throw new Error(
-      "widget.ts should not import from gad when no cross-ref:\n" + widget,
+      "widget.ts should not import from gad (no cross-prefix imports between schema files):\n" +
+        widget,
     );
+  }
+  if (!namespaces.includes(`export const ex = createNamespace`)) {
+    throw new Error("namespaces.ts missing ex declaration:\n" + namespaces);
+  }
+  if (!namespaces.includes(`export const gad = createNamespace`)) {
+    throw new Error("namespaces.ts missing gad declaration:\n" + namespaces);
   }
   assertEquals(
     index,
-    `export * from "./gad";\nexport * from "./widget";\n`,
+    `export * from "./gad";\nexport * from "./namespaces";\nexport * from "./widget";\n`,
   );
 });
 
